@@ -1,0 +1,20 @@
+// Core-driven startup run (1-region default).
+// To run 9-region startup-to-100kW, replace model with:
+//   MSRR.MSRRstartUpTo100kW9R
+
+cd(getEnvironmentVar("HOME") + "/git/SMD-MSRR-dev/startup");
+
+loadFile("../core/SMD_MSR_Modelica.mo");
+loadFile("../core/MSRR.mo");
+
+simulate(
+  MSRR.MSRRstartUpTo100kW,
+  startTime=0,
+  stopTime=151200,
+  numberOfIntervals=151200,
+  tolerance=1E-6,
+  method=dassl,
+  outputFormat="csv",
+  fileNamePrefix="startUp_to100kW",
+  simflags="-maxStepSize=0.01"
+);

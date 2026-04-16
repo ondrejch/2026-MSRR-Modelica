@@ -1,0 +1,15 @@
+{
+  "host": "<login-host>",
+  "workers": [
+    "<worker-1>",
+    "<worker-2>"
+  ],
+  "max_tasks_per_worker": 32,
+  "modelica_bin_dir": "<optional-openmodelica-bin-dir>",
+  "jobs_root": "~/.modelica_ssh/jobs",
+  "remote_repo_relpath": "<path-under-home>/SMD-MSRR-dev",
+  "ssh_options": [
+    "<optional-ssh-arg-1>",
+    "<optional-ssh-arg-2>"
+  ]
+}
