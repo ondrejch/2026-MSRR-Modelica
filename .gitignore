@@ -1,0 +1,13 @@
+# Stakpak session files
+.stakpak/session*
+
+# Local OMC gateway configuration
+helpers/omc_gw/config.json
+
+# Python packaging artifacts
+*.egg-info/
+*.py[cod]
+__pycache__/
+build/
+dist/
+.venv/

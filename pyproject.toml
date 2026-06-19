@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smd-msrr"
+version = "0.1.0"
+description = "Python workflows and Modelica assets for MSRR startup, frequency-response, and transient studies."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Ondrej Chvala", email = "ochvala@utexas.edu" },
+    { name = "Visura Pathirana" },
+]
+dependencies = [
+    "joblib",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[project.scripts]
+msrr-setpoints-generate = "core.init.generateSetpointTable:main"
+msrr-setpoints-generate-continuation = "core.init.generateSetpointTableContinuation:main"
+msrr-setpoints-test-low-power = "core.init.testSetpointLongLowPower:main"
+msrr-startup-run = "startup.runMSRR:main"
+msrr-startup-plot = "startup.plotStartUp:main"
+msrr-startup-plot-100kw = "startup.plotStartUpTo100kW:main"
+msrr-startup-plot-1mw = "startup.plotStartUpTo1MW:main"
+msrr-startup-plot-with-source = "startup.plotStartUpWithSource:main"
+msrr-startup-plot-criticality = "startup.plotApproachToCriticalityPhase4:main"
+msrr-freq-run = "freq.runFreqNominal:main"
+msrr-freq-run-parallel = "freq.runFreqNominalParallel:main"
+msrr-freq-run-all-powers = "freq.runFreqNominalParallelAllPowers:main"
+msrr-freq-collect = "freq.collectFreqNominal:main"
+msrr-freq-collect-parallel = "freq.collectFreqNominalParallel:main"
+msrr-freq-plot-bode-compare = "freq.plotBodeCompareCoreModels:main"
+msrr-freq-plot-time-compare = "freq.plotFreqTimeCompareCoreModels:main"
+msrr-watch-omc-gw-collect = "freq.watchOmcGwCollect:main"
+msrr-transients-run = "transients.run_nonlinear_steps:main"
+msrr-transients-plot = "transients.plot_nonlinear_steps:main"
+msrr-omc-gw = "helpers.omc_gw.modelica_ssh_client:main"
+msrr-omc-gw-agent = "helpers.omc_gw.modelica_ssh_agent:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "core",
+    "core.*",
+    "freq",
+    "startup",
+    "transients",
+    "helpers",
+    "helpers.*",
+]
+
+[tool.setuptools.package-data]
+core = [
+    "*.mo",
+    "README.md",
+    "init/*.csv",
+    "init/README.md",
+]
+freq = [
+    "README.md",
+    "INVESTIGATION_CONTEXT.md",
+    "runFreqNominal_script.sh",
+]
+startup = [
+    "README.md",
+]
+transients = [
+    "README.md",
+]
+helpers = [
+    "omc_gw/README.md",
+]
