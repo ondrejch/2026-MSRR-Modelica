@@ -1288,10 +1288,15 @@ package MSRR
   end MSRRstartUpCriticality9R;
 
   /* Extends MSRRstartUpCriticality to add a 9-step UHX demand ramp after
-     criticality, targeting ~100 kW fission power (uhxDemandFinal ≈ 0.107 MW). */
+     criticality. The control input here is total UHX heat-removal demand,
+     but the startup objective is approximately 100 kW of fission power.
+     The startup-to-100kW plotting workflow interprets the demand as a
+     fission-equivalent target using an assumed 95% fission fraction, so the
+     final demand is set to 0.1 MW / 0.95 ~= 0.107 MW instead of exactly
+     0.1 MW. */
   model MSRRstartUpTo100kW
-    parameter SMD_MSR_Modelica.Units.Power uhxDemandFinal = 0.107*1E6
-      "Final UHX demand [W] (~100 kW fission target)";
+    parameter SMD_MSR_Modelica.Units.Power uhxDemandFinal = 0.1*1E6/0.95
+      "Final UHX demand [W] for ~100 kW fission target with 95% fission fraction";
     parameter SMD_MSR_Modelica.Units.InitiationTime demandRampStart = 102600
       "Start of final UHX-demand ramp [s]";
     parameter SMD_MSR_Modelica.Units.InitiationTime demandRampDeltaT = 3600
@@ -1317,8 +1322,8 @@ package MSRR
   end MSRRstartUpTo100kW;
 
   model MSRRstartUpTo100kW9R
-    parameter SMD_MSR_Modelica.Units.Power uhxDemandFinal = 0.107*1E6
-      "Final UHX demand [W] (~100 kW fission target)";
+    parameter SMD_MSR_Modelica.Units.Power uhxDemandFinal = 0.1*1E6/0.95
+      "Final UHX demand [W] for ~100 kW fission target with 95% fission fraction";
     parameter SMD_MSR_Modelica.Units.InitiationTime demandRampStart = 102600
       "Start of final UHX-demand ramp [s]";
     parameter SMD_MSR_Modelica.Units.InitiationTime demandRampDeltaT = 3600

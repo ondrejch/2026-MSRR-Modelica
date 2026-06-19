@@ -73,6 +73,19 @@ def find_column(
     return None
 
 
+def to_kw(power_series: np.ndarray) -> np.ndarray:
+    """Best-effort conversion to kW from typical W/MW outputs."""
+    max_abs = float(np.nanmax(np.abs(power_series)))
+    if max_abs > 1.0e4:
+        # Current startup CSVs report power-like channels in W.
+        return power_series / 1000.0
+    if max_abs < 100.0:
+        # Older runs occasionally stored these channels in MW.
+        return power_series * 1000.0
+    # Leave already-kW values alone.
+    return power_series
+
+
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
@@ -222,7 +235,7 @@ def main() -> int:
 
     time_s = data[time_col].to_numpy(dtype=float)
     time_h = time_s / 3600.0
-    fission_power_kw = data[power_col].to_numpy(dtype=float) * 1000.0
+    fission_power_kw = to_kw(data[power_col].to_numpy(dtype=float))
     n_pop = data[n_pop_col].to_numpy(dtype=float)
     ext_reactivity_pcm = data[ext_reactivity_col].to_numpy(dtype=float) * 1.0e5
     source_rate = data[source_col].to_numpy(dtype=float)

@@ -73,6 +73,19 @@ def find_column(
     return None
 
 
+def to_kw(power_series: np.ndarray) -> np.ndarray:
+    """Best-effort conversion to kW from typical W/MW outputs."""
+    max_abs = float(np.nanmax(np.abs(power_series)))
+    if max_abs > 1.0e4:
+        # Current startup CSVs report power-like channels in W.
+        return power_series / 1000.0
+    if max_abs < 100.0:
+        # Older runs occasionally stored these channels in MW.
+        return power_series * 1000.0
+    # Leave already-kW values alone.
+    return power_series
+
+
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
@@ -117,12 +130,6 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.95,
         help="Assumed fission fraction of total thermal power (for demand conversion)",
-    )
-    parser.add_argument(
-        "--post_source_start_s",
-        type=float,
-        default=100900.0,
-        help="Start time [s] for post-source zoom panel",
     )
     parser.add_argument(
         "--tail_window_s",
@@ -261,14 +268,15 @@ def main() -> int:
 
     t_s = df[time_col].to_numpy(dtype=float)
     t_h = t_s / 3600.0
-    power_kw = df[power_col].to_numpy(dtype=float) * 1000.0
+    power_kw = to_kw(df[power_col].to_numpy(dtype=float))
     demand_col = find_column(
         columns=columns,
         exact=("uhx.PowerDemand.R", "stepper1.step.R", "uhxDemand.step.R"),
         suffix=("uhx.powerdemand.r", "stepper1.step.r", "uhxdemand.step.r"),
     )
     if demand_col is not None:
-        demand_total_kw = df[demand_col].to_numpy(dtype=float) * 1000.0
+        # Demand and power channels share the same unit ambiguity in historical CSVs.
+        demand_total_kw = to_kw(df[demand_col].to_numpy(dtype=float))
     else:
         demand_total_kw = None
     demand_fission_equiv_kw = (
