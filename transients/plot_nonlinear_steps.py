@@ -102,13 +102,13 @@ CORE_STYLE = {
     "1r": {
         "label": "1R",
         "line": (0, (6.0, 2.5)),
-        "lightness_scale": 0.72,
+        "lightness_scale": 0.70,
         "linewidth": 1.6,
     },
     "9r": {
         "label": "9R",
         "line": "-",
-        "lightness_scale": 1.45,
+        "lightness_scale": 1.50,
         "linewidth": 1.1,
     },
 }
