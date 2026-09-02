@@ -89,8 +89,12 @@ def _default_agent_command(config: dict[str, Any] | None = None) -> str:
                 repo_rel = repo_rel[2:]
             repo_root = _remote_home_shell_path(f"~/{repo_rel}" if repo_rel else "~")
             return f"python3 {repo_root}/helpers/omc_gw/modelica_ssh_agent.py"
-    agent_path = Path(__file__).resolve().with_name("modelica_ssh_agent.py")
-    return f"python3 {_remote_home_shell_path(agent_path)}"
+    raise ModelicaSshError(
+        "unconfigured Modelica SSH client: set agent_command (or "
+        "remote_agent_command) or remote_repo_relpath in the user config "
+        f"({config_path_hint()}); the client does not guess a remote path "
+        "from the local checkout. See helpers/omc_gw/config.example.json."
+    )
 
 
 class ModelicaSshError(RuntimeError):

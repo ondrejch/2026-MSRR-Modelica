@@ -413,6 +413,10 @@ def main() -> int:
         for axis in axes:
             axis.axvspan(ts0 / 3600.0, ts1 / 3600.0, color="#f2c14e", alpha=0.15, label=label)
 
+    t_end_h = float(t_h.max())
+    for axis in axes:
+        axis.set_xlim(0.0, t_end_h)
+
     fig.suptitle("MSRR Startup to 100 kW")
     fig.tight_layout(rect=[0, 0, 1, 0.975])
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -12,14 +12,17 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import math
 import os
 from pathlib import Path
 
 try:
     from . import generateSetpointTable as base
+    from ._common import variable_filter_for_core
 except ImportError:
     import generateSetpointTable as base
+    from _common import variable_filter_for_core
 
 STOP_TIME_OVERRIDES: dict[str, dict[str, float]] = {
     # Low-power 1R points also require long horizons for n/setpoint convergence.
@@ -88,8 +91,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--work_dir",
         type=str,
-        default="/tmp/msrr_setpoint_table_continuation",
-        help="Working directory for generated simulation cases.",
+        default=str(Path(__file__).resolve().parents[2] / "00runs" / "tmp" / "setpoints_continuation"),
+        help=(
+            "Working directory for generated simulation cases "
+            "(default: <repo>/00runs/tmp/setpoints_continuation)"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -100,7 +106,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--append",
         action="store_true",
-        help="Append generated rows to an existing output CSV.",
+        help=(
+            "Merge generated rows into an existing output CSV, replacing any "
+            "matching (power, heatLossEnabled) keys."
+        ),
     )
     parser.add_argument(
         "--meta",
@@ -139,6 +148,29 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1000,
         help="Minimum number of tail samples used for steady-state averaging.",
+    )
+    parser.add_argument(
+        "--qualification_profile",
+        choices=base.QUALIFICATION_PROFILES,
+        default=base.DEFAULT_QUALIFICATION_PROFILE,
+        help=(
+            "Use diagnostic or publication-grade convergence qualification. "
+            "Publication mode applies the same fail-safe tolerance clamps, "
+            "residual-amplitude default, and 1000 s minimum tail as the "
+            "direct generator."
+        ),
+    )
+    parser.add_argument(
+        "--conv_residual_amplitude_tol",
+        type=float,
+        default=None,
+        help="Relative detrended p99-p01 residual-amplitude limit.",
+    )
+    parser.add_argument(
+        "--tail_min_duration",
+        type=float,
+        default=0.0,
+        help="Minimum physical duration of the scored tail in seconds.",
     )
     parser.add_argument(
         "--method",
@@ -204,25 +236,115 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable reactivity feedback during setpoint generation.",
     )
-    return parser.parse_args()
-
-
-def variable_filter_for_core(core_model: str) -> str:
-    if core_model == "9r":
-        return (
-            r"^(time|msre9r\.upperPlenum\.T|msre9r\.R[1-9]\.(fuelNode1|fuelNode2|grapNode)\.T|"
-            r"heatExchanger\.T_(in|out)_(p|s)Fluid\.T|heatExchanger\.T_[PST]N[1-4]|"
-            r"pipe(HXtoUHX|UHXtoHX|DHRStoHX|HXtoCore|CoreToDHRS)\.tempPi|"
-            r"dhrs\.tempOut\.T|uhx\.tempOut\.T|"
-            r"msre9r\.mpke\.n_population\.n|msre9r\.reactorPower\.P|powerBlock\.fissionPower\.P)$"
-        )
-    return (
-        r"^(time|core1R\.fuelchannel\.(fuelNode1|fuelNode2|grapNode)\.T|"
-        r"heatExchanger\.T_(in|out)_(p|s)Fluid\.T|heatExchanger\.T_[PST]N[1-4]|"
-        r"pipe(HXtoUHX|UHXtoHX|DHRStoHX|HXtoCore|CoreToDHRS)\.tempPi|"
-        r"dhrs\.tempOut\.T|uhx\.tempOut\.T|"
-        r"core1R\.mpke\.n_population\.n|core1R\.reactorPower\.P|powerBlock\.fissionPower\.P)$"
+    parser.add_argument(
+        "--omc_timeout_seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "Maximum wall-clock seconds per omc simulation before it is "
+            "treated as failed (0 disables the timeout, default: 0)."
+        ),
     )
+    parser.add_argument(
+        "--accept_unconverged",
+        action="store_true",
+        help=(
+            "Write target rows whose late-window convergence checks failed "
+            f"into the output table marked {base.QUALIFIED_COLUMN}=0. Without "
+            "this flag such targets are treated as failures and excluded."
+        ),
+    )
+    parser.add_argument(
+        "--conv_window_tol",
+        type=float,
+        default=base.DEFAULT_CONVERGENCE_WINDOW_TOLERANCE,
+        help=(
+            "Relative tolerance on the difference between the two equal "
+            "late-window means, divided by the engineering scale "
+            "S=max(|mean|, family floor); where the family defines an "
+            "absolute bar, the effective combined limit is the larger of "
+            "the two bars, and a deviation is rejected only when it "
+            "exceeds both "
+            f"(default: {base.DEFAULT_CONVERGENCE_WINDOW_TOLERANCE})"
+        ),
+    )
+    parser.add_argument(
+        "--conv_slope_tol",
+        type=float,
+        default=base.DEFAULT_CONVERGENCE_SLOPE_TOLERANCE,
+        help=(
+            "Relative tolerance on the least-squares trend projected across "
+            "the full late window (slope times window duration, divided by "
+            "the same engineering scale); where the family defines an "
+            "absolute bar, the effective combined limit is the larger of "
+            "the two bars "
+            f"(default: {base.DEFAULT_CONVERGENCE_SLOPE_TOLERANCE})"
+        ),
+    )
+    parser.add_argument(
+        "--conv_temperature_abs_tol",
+        type=float,
+        default=base.DEFAULT_TEMPERATURE_ABS_TOLERANCE,
+        help=(
+            "Absolute late-window acceptance bar for temperature columns, "
+            "in the setpoint-table unit (degrees Celsius; kelvin shares the "
+            f"numeric width) (default: {base.DEFAULT_TEMPERATURE_ABS_TOLERANCE})"
+        ),
+    )
+    parser.add_argument(
+        "--conv_temperature_floor",
+        type=float,
+        default=base.DEFAULT_TEMPERATURE_SCALE_FLOOR,
+        help=(
+            "Engineering-scale floor for temperature columns, "
+            "S=max(|mean|, floor), in the same unit as "
+            "--conv_temperature_abs_tol "
+            f"(default: {base.DEFAULT_TEMPERATURE_SCALE_FLOOR})"
+        ),
+    )
+    parser.add_argument(
+        "--conv_power_abs_tol",
+        type=float,
+        default=base.DEFAULT_POWER_ABS_TOLERANCE,
+        help=(
+            "Absolute late-window acceptance bar for power columns, in "
+            f"watts (default: {base.DEFAULT_POWER_ABS_TOLERANCE})"
+        ),
+    )
+    parser.add_argument(
+        "--conv_power_floor",
+        type=float,
+        default=base.DEFAULT_POWER_SCALE_FLOOR,
+        help=(
+            "Engineering-scale floor for power columns in watts "
+            f"(default: {base.DEFAULT_POWER_SCALE_FLOOR})"
+        ),
+    )
+    parser.add_argument(
+        "--conv_population_floor",
+        type=float,
+        default=base.DEFAULT_POPULATION_SCALE_FLOOR,
+        help=(
+            "Engineering-scale floor for normalized population columns "
+            "(dimensionless; relative bars only) "
+            f"(default: {base.DEFAULT_POPULATION_SCALE_FLOOR})"
+        ),
+    )
+    parser.add_argument(
+        "--claim_timeout_s",
+        type=float,
+        default=None,
+        help=(
+            "Maximum seconds to wait for a busy result-slot claim when "
+            "another launch holds the same power slot; expiry raises "
+            "ResultSlotClaimTimeout naming the holder. Default: wait "
+            "indefinitely (previous behavior)."
+        ),
+    )
+    args = parser.parse_args()
+    if args.claim_timeout_s is not None and args.claim_timeout_s <= 0:
+        parser.error("--claim_timeout_s must be a positive number of seconds")
+    return args
 
 
 def n_column_for_core(core_model: str) -> str:
@@ -327,6 +449,22 @@ def run_one_step(
 
     last_exc: Exception | None = None
     for tag, this_stop_time, this_flags in attempts:
+        # Hash this continuation module into the manifest so a byte change
+        # to it (simflags, steps, stop-time overrides) moves the fingerprint.
+        expected_manifest = base.build_setpoint_case_manifest(
+            core_model=args.core_model,
+            power=power,
+            model_name=model_name,
+            model_src=model_src,
+            library_src=library_src,
+            stop_time=this_stop_time,
+            number_of_intervals=interval_override,
+            init_overrides=init_overrides,
+            feedback_on=feedback_on,
+            method=args.method,
+            variable_filter=variable_filter,
+            extra_workflow_python_files=[Path(__file__).resolve()],
+        )
         try:
             csv_path = base.run_steady_state_case(
                 power=power,
@@ -336,13 +474,40 @@ def run_one_step(
                 library_src=library_src,
                 stop_time=this_stop_time,
                 variable_filter=variable_filter,
-                heat_loss=args.heat_loss,
                 init_overrides=init_overrides,
                 feedback_on=feedback_on,
                 simflags_extra=this_flags,
                 method=args.method,
                 number_of_intervals=interval_override,
+                omc_timeout_seconds=(
+                    args.omc_timeout_seconds if args.omc_timeout_seconds > 0 else None
+                ),
+                expected_manifest=expected_manifest,
+                validation_required_columns=tuple(requested_result_vars),
+                validation_min_samples=int(args.tail_min_samples),
+                claim_timeout_s=getattr(args, "claim_timeout_s", None),
             )
+            report = base.evaluate_tail_convergence(
+                csv_path,
+                state_columns=requested_result_vars,
+                tail_fraction=args.tail_fraction,
+                tail_min_samples=args.tail_min_samples,
+                window_tolerance=args.conv_window_tol,
+                slope_tolerance=args.conv_slope_tol,
+                core_model=args.core_model,
+                temperature_abs_tol=args.conv_temperature_abs_tol,
+                temperature_floor=args.conv_temperature_floor,
+                power_abs_tol=args.conv_power_abs_tol,
+                power_floor=args.conv_power_floor,
+                population_floor=args.conv_population_floor,
+                qualification_profile=args.qualification_profile,
+                residual_amplitude_tolerance=args.conv_residual_amplitude_tol,
+                minimum_tail_duration_s=args.tail_min_duration,
+                require_plant_signals=(
+                    args.qualification_profile == "publication"
+                ),
+            )
+            base.write_convergence_report(csv_path, report)
             tail_means = base.read_tail_means(
                 csv_path=csv_path,
                 variable_names=requested_result_vars,
@@ -356,6 +521,7 @@ def run_one_step(
                 table_mapping=table_mapping,
                 heat_loss=args.heat_loss,
             )
+            row[base.QUALIFIED_COLUMN] = int(bool(report["passed"]))
             n_min, n_end = read_n_stats(csv_path, n_col)
             meta = {
                 "attempt": tag,
@@ -364,6 +530,8 @@ def run_one_step(
                 "simflags": this_flags,
                 "n_min": n_min,
                 "n_end": n_end,
+                "convergence_passed": bool(report["passed"]),
+                "convergence_report": str(base.convergence_report_path(csv_path)),
             }
             return row, meta
         except Exception as exc:  # noqa: BLE001
@@ -375,10 +543,10 @@ def run_one_step(
 
 
 def main() -> None:
-    args = parse_args()
+    args = base.apply_qualification_profile(parse_args())
 
-    if args.max_ratio < 1.0:
-        raise ValueError("--max_ratio must be >= 1.")
+    if args.max_ratio <= 1.0:
+        raise ValueError("--max_ratio must be > 1.")
     if args.tail_min_samples <= 0:
         raise ValueError("--tail_min_samples must be > 0.")
     if not (0.0 < args.tail_fraction <= 1.0):
@@ -390,6 +558,28 @@ def main() -> None:
             "Heat-loss setpoint generation is disabled. "
             "Use heat loss only in startup scenarios."
         )
+    if args.omc_timeout_seconds < 0:
+        raise ValueError("--omc_timeout_seconds must be >= 0.")
+    if args.conv_window_tol < 0 or args.conv_slope_tol < 0:
+        raise ValueError(
+            "--conv_window_tol and --conv_slope_tol must be nonnegative."
+        )
+    if (
+        args.conv_residual_amplitude_tol is not None
+        and args.conv_residual_amplitude_tol < 0
+    ):
+        raise ValueError("--conv_residual_amplitude_tol must be nonnegative.")
+    if args.tail_min_duration < 0:
+        raise ValueError("--tail_min_duration must be nonnegative.")
+    for flag_name in (
+        "conv_temperature_abs_tol",
+        "conv_temperature_floor",
+        "conv_power_abs_tol",
+        "conv_power_floor",
+        "conv_population_floor",
+    ):
+        if getattr(args, flag_name) < 0:
+            raise ValueError(f"--{flag_name.replace('_', '-')} must be nonnegative.")
 
     powers = base.parse_powers(args.powers)
     powers_desc = sorted(powers, reverse=True)
@@ -447,6 +637,18 @@ def main() -> None:
     print(f"  Retry stop time:       {args.retry_stop_time}")
     print(f"  Method:                {args.method}")
     print(f"  Steady-state flags:    {args.enable_steady_state} (tol={args.steady_state_tol})")
+    print(f"  Qualification profile: {args.qualification_profile}")
+    print(
+        f"  Convergence:           relative window/slope eps {args.conv_window_tol:g}/"
+        f"{args.conv_slope_tol:g} on engineering scales; temperature abs "
+        f"{args.conv_temperature_abs_tol:g} (table degC, floor {args.conv_temperature_floor:g}), "
+        f"power abs {args.conv_power_abs_tol:g} W (floor {args.conv_power_floor:g}), "
+        f"population floor {args.conv_population_floor:g}"
+    )
+    if args.accept_unconverged:
+        print("  Unconverged:           accepted and marked qualified=0")
+    else:
+        print("  Unconverged:           target excluded from the output table")
     print(f"  Retry NLS:             {args.retry_nls or '(disabled)'}")
     print("  Heat loss:             False (startup-only, disabled for power setpoints)")
     print(f"  Feedback:              {'on' if feedback_on else 'off'}")
@@ -459,87 +661,102 @@ def main() -> None:
 
     rows: list[dict[str, float]] = []
     meta_rows: list[dict[str, object]] = []
+    failures: list[tuple[float, str]] = []
 
     prev_target: float | None = None
     current_overrides: dict[str, float] | None = None
+    last_good_overrides: dict[str, float] | None = None
     done_targets = 0
     for target_power in powers_desc:
         steps = continuation_steps(prev_target, target_power, args.max_ratio)
         print(f"Target power {target_power:g}: solving {len(steps)} continuation step(s)")
 
-        for i, step_power in enumerate(steps, start=1):
-            if current_overrides is None:
-                current_overrides = base.resolve_init_overrides(
-                    args.core_model,
-                    init_table,
-                    step_power,
-                    args.heat_loss,
-                    args.init_temp,
+        try:
+            for i, step_power in enumerate(steps, start=1):
+                if current_overrides is None:
+                    current_overrides = base.resolve_init_overrides(
+                        args.core_model,
+                        init_table,
+                        step_power,
+                        args.heat_loss,
+                        args.init_temp,
+                    )
+                print(f"  Step {i}/{len(steps)} at power={step_power:.12g}")
+                row, meta = run_one_step(
+                    power=step_power,
+                    init_overrides=current_overrides,
+                    args=args,
+                    model_name=model_name,
+                    model_src=model_src,
+                    library_src=library_src,
+                    variable_filter=variable_filter,
+                    requested_result_vars=requested_result_vars,
+                    table_mapping=table_mapping,
+                    feedback_on=feedback_on,
+                    n_col=n_col,
                 )
-            print(f"  Step {i}/{len(steps)} at power={step_power:.12g}")
-            row, meta = run_one_step(
-                power=step_power,
-                init_overrides=current_overrides,
-                args=args,
-                model_name=model_name,
-                model_src=model_src,
-                library_src=library_src,
-                variable_filter=variable_filter,
-                requested_result_vars=requested_result_vars,
-                table_mapping=table_mapping,
-                feedback_on=feedback_on,
-                n_col=n_col,
+
+                current_overrides = {col: row[col] for col in steady_state_columns}
+                meta_rows.append(
+                    {
+                        "core_model": args.core_model,
+                        "heatLossEnabled": int(bool(args.heat_loss)),
+                        "target_power": target_power,
+                        "step_power": step_power,
+                        "attempt": meta["attempt"],
+                        "stop_time": meta["stop_time"],
+                        "n_min": meta["n_min"],
+                        "n_end": meta["n_end"],
+                        "csv_path": meta["csv_path"],
+                        "simflags": meta["simflags"],
+                    }
+                )
+        except Exception as exc:
+            failures.append((target_power, str(exc)))
+            print(f"  ERROR: target power={target_power} failed: {exc}")
+            current_overrides = (
+                dict(last_good_overrides) if last_good_overrides is not None else None
+            )
+            continue
+
+        # Final-step late-window qualification drives whether this target may
+        # enter the production table.
+        final_converged = bool(int(row.get(base.QUALIFIED_COLUMN, 1)))
+        if not final_converged and not args.accept_unconverged:
+            reason = (
+                "late-window convergence checks failed; see "
+                f"{meta.get('convergence_report', 'the case convergence report')}"
+            )
+            failures.append((target_power, reason))
+            print(f"  ERROR: target power={target_power} unconverged ({reason})")
+            current_overrides = (
+                dict(last_good_overrides) if last_good_overrides is not None else None
+            )
+            continue
+        if not final_converged:
+            print(
+                f"  WARNING: target power={target_power} failed late-window "
+                f"checks; written with {base.QUALIFIED_COLUMN}=0"
             )
 
-            current_overrides = {col: row[col] for col in steady_state_columns}
-            meta_rows.append(
-                {
-                    "core_model": args.core_model,
-                    "heatLossEnabled": int(bool(args.heat_loss)),
-                    "target_power": target_power,
-                    "step_power": step_power,
-                    "attempt": meta["attempt"],
-                    "stop_time": meta["stop_time"],
-                    "n_min": meta["n_min"],
-                    "n_end": meta["n_end"],
-                    "csv_path": meta["csv_path"],
-                    "simflags": meta["simflags"],
-                }
-            )
-
+        last_good_overrides = (
+            dict(current_overrides) if current_overrides is not None else None
+        )
         rows.append(row)
         prev_target = target_power
         done_targets += 1
         print(f"  Completed target {done_targets}/{len(powers_desc)}")
 
-    # Output is typically consumed in ascending power order.
-    rows.sort(key=lambda item: (item["power"], item.get("heatLossEnabled", 0)))
+    if not rows and failures:
+        print("ERROR: no target powers succeeded; output table not written.")
+        raise SystemExit(1)
 
+    succeeded = len(rows)
     if args.append and os.path.exists(output_path):
-        with open(output_path, newline="") as handle:
-            reader = csv.DictReader(handle)
-            if not reader.fieldnames:
-                raise ValueError(f"Existing output CSV has no header: {output_path}")
-            if "heatLossEnabled" not in reader.fieldnames:
-                raise ValueError(
-                    "Existing output CSV missing 'heatLossEnabled' column. "
-                    "Regenerate it before appending."
-                )
-            existing = []
-            for raw in reader:
-                if not raw or (raw.get("power") or "").strip() == "":
-                    continue
-                parsed = {
-                    "power": float(raw["power"]),
-                    "heatLossEnabled": int(float(raw.get("heatLossEnabled", "0"))),
-                }
-                for column in steady_state_columns:
-                    val = (raw.get(column) or "").strip()
-                    if val == "":
-                        continue
-                    parsed[column] = float(val)
-                existing.append(parsed)
-        rows = existing + rows
+        existing = base.read_existing_table_rows(output_path, steady_state_columns)
+        rows = base.merge_table_rows(existing, rows)
+    else:
+        # Output is typically consumed in ascending power order.
         rows.sort(key=lambda item: (item["power"], item.get("heatLossEnabled", 0)))
 
     base.write_table(
@@ -549,27 +766,41 @@ def main() -> None:
     )
 
     os.makedirs(os.path.dirname(meta_path) or ".", exist_ok=True)
-    with open(meta_path, "w", newline="") as handle:
-        fieldnames = [
-            "core_model",
-            "heatLossEnabled",
-            "target_power",
-            "step_power",
-            "attempt",
-            "stop_time",
-            "n_min",
-            "n_end",
-            "csv_path",
-            "simflags",
-        ]
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for item in meta_rows:
-            writer.writerow(item)
+    # Metadata CSV is published atomically (unique temp name + os.replace),
+    # matching the output table so an interrupted run leaves no partial file.
+    buffer = io.StringIO()
+    fieldnames = [
+        "core_model",
+        "heatLossEnabled",
+        "target_power",
+        "step_power",
+        "attempt",
+        "stop_time",
+        "n_min",
+        "n_end",
+        "csv_path",
+        "simflags",
+    ]
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    for item in meta_rows:
+        writer.writerow(item)
+    base._run_results().atomic_write_text(meta_path, buffer.getvalue())
 
     print("=" * 80)
-    print(f"Wrote steady-state table: {output_path}")
+    print(
+        f"Wrote steady-state table: {output_path} "
+        f"({succeeded}/{len(powers_desc)} targets succeeded)"
+    )
     print(f"Wrote continuation metadata: {meta_path}")
+    if failures:
+        print(
+            "Failed target powers (rerun the failed --powers with --append "
+            "to fill gaps):"
+        )
+        for power, message in sorted(failures):
+            print(f"  power={power}: {message}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

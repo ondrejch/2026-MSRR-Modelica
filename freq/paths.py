@@ -34,10 +34,24 @@ def default_freq_core_dir(repo_root: Path, *, core_model: str) -> Path:
     return default_freq_results_root(repo_root) / core_model
 
 
-def default_freq_case_dir(repo_root: Path, *, core_model: str, power: float) -> Path:
-    """Return the default run directory for one core/power definition."""
+def default_freq_case_dir(
+    repo_root: Path,
+    *,
+    core_model: str,
+    power: float,
+    package: str = "legacy",
+) -> Path:
+    """Return the default run directory for one core/power definition.
 
-    return default_freq_core_dir(repo_root, core_model=core_model) / f"power_{make_power_tag(power)}"
+    Segmented runs (``package="segmented"``) nest under an extra
+    ``segmented/`` component so they can never collide with legacy results in
+    the same ``power_<tag>`` folder: legacy collectors glob
+    ``00runs/freq/<core>/power_<tag>`` directly.
+    """
+    case_root = default_freq_core_dir(repo_root, core_model=core_model)
+    if str(package) == "segmented":
+        case_root = case_root / "segmented"
+    return case_root / f"power_{make_power_tag(power)}"
 
 
 def default_freq_plot_dir(repo_root: Path) -> Path:

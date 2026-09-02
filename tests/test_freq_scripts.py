@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import subprocess
 from pathlib import Path
 import sys
 
@@ -68,6 +69,25 @@ def test_read_stop_time_mapping_uses_formatted_frequency_keys(tmp_path: Path) ->
         assert mapping[key] == pytest.approx(float((idx + 1) * 1000))
 
 
+def test_format_matlab_assignment_is_numpy2_safe() -> None:
+    collect_parallel = _load_module(
+        "collect_freq_nominal_parallel_matlab_test",
+        "freq/collectFreqNominalParallel.py",
+    )
+    line = collect_parallel.format_matlab_assignment(
+        "freq",
+        [np.float64(0.01), np.float64(1000.0)],
+    )
+    assert line == "freq = [0.01 1000];\n"
+    assert "np.float64" not in line
+
+    edge = collect_parallel.format_matlab_assignment(
+        "gain_dB",
+        [float("-inf"), float("nan"), 3.5],
+    )
+    assert edge == "gain_dB = [-Inf NaN 3.5];\n"
+
+
 def test_process_single_freq_phase_is_referenced_to_perturbation_start(
     tmp_path: Path,
 ) -> None:
@@ -102,7 +122,6 @@ def test_process_single_freq_phase_is_referenced_to_perturbation_start(
         ss_time=ss_time,
         fit_start=ss_time,
         fit_end=200.0,
-        max_fit_points=0,
     )
     late = collect_parallel.process_single_freq(
         freq_point=freq_point,
@@ -111,7 +130,6 @@ def test_process_single_freq_phase_is_referenced_to_perturbation_start(
         ss_time=ss_time,
         fit_start=137.6,
         fit_end=200.0,
-        max_fit_points=0,
     )
 
     assert early["success"] is True
@@ -119,6 +137,74 @@ def test_process_single_freq_phase_is_referenced_to_perturbation_start(
     assert early["phase_deg"] == pytest.approx(phase_reference_deg, abs=0.2)
     assert late["phase_deg"] == pytest.approx(phase_reference_deg, abs=0.3)
     assert late["phase_deg"] == pytest.approx(early["phase_deg"], abs=0.3)
+
+
+def test_process_single_freq_does_not_extend_before_perturbation(
+    tmp_path: Path,
+) -> None:
+    """Too few finite post-start samples reject the fit; pre-forcing data
+    are never pulled in. ``fit_end=None`` must not TypeError."""
+    collect_parallel = _load_module(
+        "collect_freq_nominal_parallel_no_preforce_fallback",
+        "freq/collectFreqNominalParallel.py",
+    )
+    freq_point = 0.1
+    ss_time = 100.0
+    work_path = tmp_path / f"freq{freq_point:08.5f}"
+    work_path.mkdir()
+    csv_path = work_path / f"MSRR_freq{freq_point:08.5f}_res.csv"
+    with csv_path.open("w", encoding="utf-8") as handle:
+        handle.write("time,npopulationn\n")
+        for time_value in np.linspace(0.0, 99.9, 400):
+            handle.write(f"{time_value:.8f},1.0\n")
+        for time_value in np.linspace(ss_time, ss_time + 0.3, 4):
+            handle.write(f"{time_value:.8f},1.0\n")
+
+    result = collect_parallel.process_single_freq(
+        freq_point=freq_point,
+        results_dir=str(tmp_path),
+        sin_mag=1.0,
+        ss_time=ss_time,
+        fit_start=ss_time,
+        fit_end=None,
+        fit_min_samples=10,
+    )
+    assert result["success"] is False
+    assert result["error"] is not None
+    assert "sine fit rejected" in result["error"]
+    assert result.get("n_samples", 0) < 10
+
+
+def test_process_single_freq_fit_end_none_uses_csv_end(tmp_path: Path) -> None:
+    """``fit_end=None`` takes the last CSV time as the window end."""
+    collect_parallel = _load_module(
+        "collect_freq_nominal_parallel_fit_end_none",
+        "freq/collectFreqNominalParallel.py",
+    )
+    freq_point = 2.5
+    ss_time = 100.0
+    sin_mag = 1.0
+    amplitude = 2.0 * sin_mag * 1e-5
+    work_path = tmp_path / f"freq{freq_point:08.5f}"
+    work_path.mkdir()
+    csv_path = work_path / f"MSRR_freq{freq_point:08.5f}_res.csv"
+    times = np.arange(ss_time, 220.0, 0.05)
+    power = 1.0 + amplitude * np.sin(freq_point * (times - ss_time))
+    with csv_path.open("w", encoding="utf-8") as handle:
+        handle.write("time,npopulationn\n")
+        for time_value, power_value in zip(times, power):
+            handle.write(f"{time_value:.8f},{power_value:.16e}\n")
+
+    result = collect_parallel.process_single_freq(
+        freq_point=freq_point,
+        results_dir=str(tmp_path),
+        sin_mag=sin_mag,
+        ss_time=ss_time,
+        fit_start=ss_time,
+        fit_end=None,
+    )
+    assert result["success"] is True
+    assert result["fit_end"] == pytest.approx(float(times[-1]))
 
 
 def test_validate_args_parallel_accepts_nominal_case() -> None:
@@ -421,7 +507,7 @@ def test_parallel_run_single_freq_applies_explicit_forcing_time_step(
         stdout = "ok\n"
         stderr = ""
 
-    def fake_run(cmd, cwd, capture_output, text):
+    def fake_run(cmd, cwd, capture_output, text, timeout=None):
         csv_path = Path(cwd) / "MSRR_freq00.10000_res.csv"
         csv_path.write_text(
             "time,npopulationn\n0.0,1.0\n1.0,1.0\n",
@@ -696,25 +782,28 @@ def test_validate_args_parallel_rejects_invalid_low_power_auto_ss_factor() -> No
         run_parallel.validate_args(args)
 
 
-def test_validate_args_serial_rejects_invalid_window() -> None:
+def test_serial_main_forwards_validation_to_shared_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deprecated serial entry point must route through the shared engine."""
+
     run_serial = _load_module(
         "run_freq_nominal_test_bad",
         "freq/runFreqNominal.py",
     )
-    args = argparse.Namespace(
-        freq_min=1e-2,
-        freq_max=1e1,
-        num_freq=10,
-        stop_time=100.0,
-        output_interval_mode="fixed_rate",
-        output_intervals_per_second=10.0,
-        output_samples_per_period=6.0,
-        output_step_max=50.0,
-        ss_time=100.0,
-        sin_mag=1.0,
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "runFreqNominal.py",
+            "--ss_time",
+            "100",
+            "--stop_time",
+            "50",
+        ],
     )
     with pytest.raises(ValueError, match="--ss_time must be smaller than --stop_time"):
-        run_serial.validate_args(args)
+        run_serial.main()
 
 
 def test_setpoint_generators_include_long_horizon_override_for_1r_0p001() -> None:
@@ -831,13 +920,19 @@ def test_watch_omc_gw_collect_extracts_stop_time_failure_hint() -> None:
     assert hint == "freq = 10.00000 rad/s - simulation output did not reach requested stop_time"
 
 
-def test_serial_main_passes_computed_number_of_intervals(
+def test_serial_main_delegates_to_parallel_engine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Serial main must compute intervals via the shared parallel engine."""
+
     run_serial = _load_module(
         "run_freq_nominal_serial_main_test",
         "freq/runFreqNominal.py",
+    )
+    run_parallel = _load_module(
+        "run_freq_nominal_serial_main_engine_test",
+        "freq/runFreqNominalParallel.py",
     )
 
     core_dir = tmp_path / "core"
@@ -853,7 +948,7 @@ def test_serial_main_passes_computed_number_of_intervals(
         captured["number_of_intervals"] = int(kwargs["number_of_intervals"])
         return {"success": True, "warning": None, "error": None}
 
-    monkeypatch.setattr(run_serial, "run_single_freq", fake_run_single_freq)
+    monkeypatch.setattr(run_parallel, "run_single_freq", fake_run_single_freq)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -885,3 +980,53 @@ def test_serial_main_passes_computed_number_of_intervals(
 
     assert captured["freq_point"] == pytest.approx(0.1)
     assert captured["number_of_intervals"] == 10
+
+
+def test_run_single_freq_timeout_writes_omc_logs(tmp_path: Path, monkeypatch) -> None:
+    run_parallel = _load_module(
+        "run_freq_nominal_parallel_timeout_logs_test",
+        "freq/runFreqNominalParallel.py",
+    )
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd="omc",
+            timeout=2.0,
+            output="omc stdout",
+            stderr="omc stderr",
+        )
+
+    monkeypatch.setattr(run_parallel.subprocess, "run", fake_run)
+    monkeypatch.setattr(run_parallel, "copyfile", lambda *_args, **_kwargs: None)
+
+    result = run_parallel.run_single_freq(
+        freq_point=0.1,
+        base_dir=str(tmp_path),
+        model_name="MSRR.MSRRuhxNominalTrim",
+        power=1.0,
+        sin_mag=1.0,
+        ss_time=10.0,
+        stop_time=20.0,
+        number_of_intervals=10,
+        steady_state_overrides=None,
+        forcing_time_step=0.0,
+        low_power_mixed_forcing_step=False,
+        low_power_forcing_step=0.0,
+        low_power_forcing_step_hifreq=0.0,
+        low_power_hifreq_split=1.0,
+        smd_library="SMD_MSR_Modelica.mo",
+        msrr_model="MSRR.mo",
+        smd_library_src="unused.mo",
+        msrr_model_src="unused.mo",
+        allow_reuse=False,
+        cleanup_omc_artifacts=False,
+        reduced_csv_for_collect=False,
+        omc_timeout_seconds=2.0,
+    )
+
+    work = tmp_path / "freq00.10000"
+    assert result["success"] is False
+    assert "timed out" in (result["error"] or "")
+    assert (work / "omc_stdout.log").read_text(encoding="utf-8") == "omc stdout"
+    assert (work / "omc_stderr.log").read_text(encoding="utf-8") == "omc stderr"
+

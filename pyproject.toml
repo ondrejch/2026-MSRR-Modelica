@@ -38,7 +38,6 @@ msrr-startup-plot-criticality = "startup.plotApproachToCriticalityPhase4:main"
 msrr-freq-run = "freq.runFreqNominal:main"
 msrr-freq-run-parallel = "freq.runFreqNominalParallel:main"
 msrr-freq-run-all-powers = "freq.runFreqNominalParallelAllPowers:main"
-msrr-freq-collect = "freq.collectFreqNominal:main"
 msrr-freq-collect-parallel = "freq.collectFreqNominalParallel:main"
 msrr-freq-plot-bode-compare = "freq.plotBodeCompareCoreModels:main"
 msrr-freq-plot-time-compare = "freq.plotFreqTimeCompareCoreModels:main"
@@ -72,15 +71,29 @@ core = [
 ]
 freq = [
     "README.md",
-    "INVESTIGATION_CONTEXT.md",
-    "runFreqNominal_script.sh",
+    "sensitivity/README.md",
 ]
 startup = [
     "README.md",
 ]
 transients = [
     "README.md",
+    "sensitivity/README.md",
 ]
 helpers = [
     "omc_gw/README.md",
+]
+
+[tool.pytest.ini_options]
+# Fail fast on misspelled custom markers instead of silently ignoring them;
+# built-in marks (parametrize, skipif, xfail, ...) are unaffected.
+addopts = "--strict-markers"
+markers = [
+    "unit: pure-Python tests needing neither OpenModelica nor network access",
+    "static_modelica: checks Modelica sources statically (parse/text), no simulation",
+    "omc_check: executes QA self-check models through omc",
+    "omc_short: short OpenModelica simulations (minutes-scale)",
+    "omc_long: long or heavy OpenModelica simulation campaigns",
+    "ssh: remote-dispatch gateway logic (offline stubs; no cluster contact)",
+    "docs: documentation-consistency checks",
 ]

@@ -11,3 +11,18 @@ __pycache__/
 build/
 dist/
 .venv/
+
+# Simulation run artifacts and disposable scratch (never /tmp)
+00runs/
+
+# OpenModelica build/runtime dumps (when omc runs from the repo root)
+*.o
+*.libs
+*.makefile
+*_res.mat
+*_init.xml
+*_info.json
+*_JacA.bin
+*_external_functions.json
+T[0-9]*
+W[0-9]*

@@ -11,17 +11,20 @@ of the simulation.
 import argparse
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 try:
+    from ._common import variable_filter_for_core
     from .generateSetpointTable import (
         MODEL_NAME_BY_CORE,
         run_steady_state_case,
         table_to_result_variable,
     )
 except ImportError:
+    from _common import variable_filter_for_core
     from generateSetpointTable import MODEL_NAME_BY_CORE, table_to_result_variable, run_steady_state_case
 
 
@@ -66,8 +69,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--work_root",
         type=str,
-        default="/tmp/msrr_setpoint_long_low_power",
-        help="Working root for generated runs (default: /tmp/...)",
+        default=str(
+            Path(__file__).resolve().parents[2]
+            / "00runs"
+            / "tmp"
+            / "setpoints_long_low_power"
+        ),
+        help=(
+            "Working root for generated runs "
+            "(default: <repo>/00runs/tmp/setpoints_long_low_power)"
+        ),
     )
     parser.add_argument(
         "--analyze_only",
@@ -101,7 +112,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--heat_loss",
         action="store_true",
-        help="Enable radiative heat loss in the core during the test run",
+        help=(
+            "Deprecated and rejected: heat loss is reserved for startup "
+            "studies and is disabled for setpoint workflows."
+        ),
     )
     parser.add_argument(
         "--core_models",
@@ -228,7 +242,7 @@ def analyze_steady_state(csv_path: str, core_model: str, tail_fraction: float, t
 
 
 def run_case(core_model: str, power: float, stop_time: float, work_root: str, core_dir: str,
-             model_name_override: str, simflags_extra: str, method: str, heat_loss: bool):
+             model_name_override: str, simflags_extra: str, method: str):
     model_src = os.path.join(core_dir, "MSRR.mo")
     library_src = os.path.join(core_dir, "SMD_MSR_Modelica.mo")
     model_name = model_name_override or MODEL_NAME_BY_CORE[core_model]
@@ -236,20 +250,7 @@ def run_case(core_model: str, power: float, stop_time: float, work_root: str, co
     work_dir = os.path.join(work_root, core_model)
     os.makedirs(work_dir, exist_ok=True)
 
-    if core_model == "9r":
-        variable_filter = (
-            r"^(time|msre9r\\.upperPlenum\\.T|msre9r\\.R[1-9]\\.(fuelNode1|fuelNode2|grapNode)\\.T|"
-            r"heatExchanger\\.T_(in|out)_(p|s)Fluid\\.T|heatExchanger\\.T_[PST]N[1-4]|"
-            r"pipe(HXtoUHX|UHXtoHX|DHRStoHX|HXtoCore|CoreToDHRS)\\.tempPi|"
-            r"dhrs\\.tempOut\\.T|uhx\\.tempOut\\.T)$"
-        )
-    else:
-        variable_filter = (
-            r"^(time|core1R\\.fuelchannel\\.(fuelNode1|fuelNode2|grapNode)\\.T|"
-            r"heatExchanger\\.T_(in|out)_(p|s)Fluid\\.T|heatExchanger\\.T_[PST]N[1-4]|"
-            r"pipe(HXtoUHX|UHXtoHX|DHRStoHX|HXtoCore|CoreToDHRS)\\.tempPi|"
-            r"dhrs\\.tempOut\\.T|uhx\\.tempOut\\.T)$"
-        )
+    variable_filter = variable_filter_for_core(core_model)
     csv_path = run_steady_state_case(
         power=power,
         work_dir=work_dir,
@@ -258,7 +259,6 @@ def run_case(core_model: str, power: float, stop_time: float, work_root: str, co
         library_src=library_src,
         stop_time=stop_time,
         variable_filter=variable_filter,
-        heat_loss=heat_loss,
         simflags_extra=simflags_extra,
         method=method,
     )
@@ -274,6 +274,12 @@ def existing_csv_path(work_root: str, power: float, core_model: str) -> str:
 
 def main() -> None:
     args = parse_args()
+
+    if args.heat_loss:
+        raise ValueError(
+            "Heat-loss setpoint generation is disabled. "
+            "Use heat loss only in startup scenarios."
+        )
 
     power = args.power
     stop_time = args.stop_time_base * args.stop_time_factor
@@ -307,7 +313,6 @@ def main() -> None:
                     args.model_name_override,
                     args.simflags_extra,
                     args.method,
-                    args.heat_loss,
                 )
                 tasks[fut] = core_model
 

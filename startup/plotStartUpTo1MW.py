@@ -168,11 +168,13 @@ def parse_args() -> argparse.Namespace:
             core_model=args.core_model,
         )
     if args.csv is None:
-        args.csv = default_startup_csv_path(
+        # Keep the CSV name from the run definition but honor an explicit
+        # --run_dir (campaign runs write artifacts under their own tree).
+        args.csv = args.run_dir / default_startup_csv_path(
             repo_root,
             scenario=SCENARIO,
             core_model=args.core_model,
-        )
+        ).name
     if args.out is None:
         args.out = args.run_dir / DEFAULT_OUT_NAME
     return args
@@ -267,25 +269,28 @@ def main() -> int:
 
     source_col = pick_source_column(columns)
 
+    # 1R names the channel fuelChannel.fuelNode1.T; 9R exposes the nine
+    # channels directly as R1..R9 (R1 is the outermost channel).
     fuel1_col = find_column(
         columns=columns,
         exact=("fuelChannel.fuelNode1.T",),
-        suffix=("fuelchannel.fuelnode1.t",),
+        suffix=("fuelchannel.fuelnode1.t", "r1.fuelnode1.t"),
     )
     fuel2_col = find_column(
         columns=columns,
         exact=("fuelChannel.fuelNode2.T",),
-        suffix=("fuelchannel.fuelnode2.t",),
+        suffix=("fuelchannel.fuelnode2.t", "r1.fuelnode2.t"),
     )
     grap_col = find_column(
         columns=columns,
         exact=("fuelChannel.grapNode.T",),
-        suffix=("fuelchannel.grapnode.t",),
+        suffix=("fuelchannel.grapnode.t", "r1.grapnode.t"),
     )
     if fuel1_col is None or fuel2_col is None or grap_col is None:
         raise KeyError(
             "Missing required temperature columns matching "
-            "fuelChannel.fuelNode1.T, fuelChannel.fuelNode2.T, fuelChannel.grapNode.T"
+            "fuelChannel.fuelNode1.T / R1.fuelNode1.T, fuelChannel.fuelNode2.T / "
+            "R1.fuelNode2.T, fuelChannel.grapNode.T / R1.grapNode.T"
         )
 
     t_s = df[time_col].to_numpy(dtype=float)
@@ -473,6 +478,10 @@ def main() -> int:
         label = "Source on" if i == 0 else None
         for axis in axes:
             axis.axvspan(ts0 / 3600.0, ts1 / 3600.0, color="#f2c14e", alpha=0.15, label=label)
+
+    t_end_h = float(t_h.max())
+    for axis in axes:
+        axis.set_xlim(0.0, t_end_h)
 
     fig.suptitle("MSRR Startup to 1 MW (Phases 1–5)")
     fig.tight_layout(rect=[0, 0, 1, 0.975])

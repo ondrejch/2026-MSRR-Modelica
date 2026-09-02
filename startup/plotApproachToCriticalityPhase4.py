@@ -155,11 +155,13 @@ def parse_args() -> argparse.Namespace:
             core_model=args.core_model,
         )
     if args.csv is None:
-        args.csv = default_startup_csv_path(
+        # Keep the CSV name from the run definition but honor an explicit
+        # --run_dir (campaign runs write artifacts under their own tree).
+        args.csv = args.run_dir / default_startup_csv_path(
             repo_root,
             scenario=SCENARIO,
             core_model=args.core_model,
-        )
+        ).name
     if args.out is None:
         args.out = args.run_dir / DEFAULT_OUT_NAME
     if args.signed_log_out is None:
@@ -375,6 +377,10 @@ def main() -> int:
         for axis in axes:
             axis.axvspan(s0 / 3600.0, s1 / 3600.0, color="#f2c14e", alpha=0.16, label=label)
 
+    t_end_h = float(t_h.max())
+    for axis in axes:
+        axis.set_xlim(0.0, t_end_h)
+
     axes[-1].set_xlabel("Time [h]")
     fig.suptitle("MSRR Startup Approach to Criticality (Phases 1-4)")
     fig.tight_layout(rect=[0, 0, 1, 0.97])
@@ -418,6 +424,9 @@ def main() -> int:
                 axis.axvspan(
                     s0 / 3600.0, s1 / 3600.0, color="#f2c14e", alpha=0.16, label=label
                 )
+
+        for axis in axes2:
+            axis.set_xlim(0.0, t_end_h)
 
         fig2.suptitle("MSRR Phases 1-4: Signed-Log Total Reactivity and Log Power")
         fig2.tight_layout(rect=[0, 0, 1, 0.965])

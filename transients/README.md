@@ -7,6 +7,7 @@ The workflow now runs and overlays both core models (`1R` and `9R`).
 
 - `run_nonlinear_steps.py`: OpenModelica runner for step-reactivity, flow-fraction, and UHX-trip cases (`1R` and `9R`).
 - `plot_nonlinear_steps.py`: plotting utility for the three Results II figures with `1R`/`9R` overlays.
+- `sensitivity/`: reviewer-response hA-exponent + linked-property sensitivity study on the 1R reactivity step (see `sensitivity/README.md`).
 - Default run directory: `00runs/transients-<core_models>/` (for example `00runs/transients-1r-9r/`).
 - Per-core simulation outputs live in `<run_dir>/<core_model>/` (for example `00runs/transients-1r-9r/1r/`).
 - Default plot output directory is the same run directory unless overridden (`--fig_dir`).
@@ -44,6 +45,42 @@ Both commands default to `00runs/transients-1r-9r/`.
   - `9R`: `MSRR.MSRRuhxTrip9RThermalSS`.
   - UHX demand steps from `1 MW` to `0` at `t=4000 s`.
   - Extended runtime to 4 hours after the trip (`stop_time = 18400 s`).
+
+## Run provenance for result CSVs
+
+Every transient case result (`<case>_res.csv`, legacy and segmented) carries
+two provenance sidecars written beside it: `<case>_res.manifest.json` —
+SHA-256 digests of the loaded Modelica sources, package/model identity, the
+case name plus the complete normalized `-override=` payload, `--max_step_size`,
+solver/tolerance/time span/output grid, setpoint-table provenance (legacy
+mode: which table was loaded; segmented mode: none), revision-control state,
+and interpreter/OpenModelica versions — and `<case>_res.validation.json`
+(outcome of the output checks below).
+
+Before any case launches, prior artifacts tied to its result path (the CSV,
+leftover temporary files, stale sidecars) are **quarantined** to
+`00runs/tmp/quarantine/<utc-stamp>/`. This closes an old acceptance hole:
+previously a pre-existing CSV passed silently when `omc` or the executable
+exited 0 without producing new output. After exit 0 with a fresh CSV, the
+case must pass validation — modification time no earlier than this run's
+launch instant, nonempty header with data rows, monotonically nondecreasing
+`time`, finite values in required columns, rows as wide as the header, and
+(segmented mode additionally) a final sample at or above 99.5 % of the
+requested stop time — before both sidecars are written. A failed validation
+aborts the runner with the failing check names. Concurrent launches of the
+same result slot are serialized by an exclusive file claim, and
+`--claim_timeout_s` bounds the wait for a busy slot (default: wait
+indefinitely; expiry raises `ResultSlotClaimTimeout` naming the current
+holder).
+
+Two deliberate behavior notes: prior results are never *reused* (every
+invocation reruns all requested cases), and the legacy `simulate()` route
+keeps its historical no-tail-check acceptance for fresh outputs (freshness
+and structure still validated), so its stored byte-level layout pins stay
+meaningful.
+
+Fast, omc-free unit coverage for segmented mode lives in
+`tests/test_transients_segmented_mode.py`.
 
 ## Notes
 

@@ -9,9 +9,19 @@ package MSRR
      (MSRR-specific), and assembled single-region / nine-region reactor blocks. */
   package Components
     /* Lumped two-node fuel-salt + one-node graphite channel for one reactor region.
-       hA uses a FF^0.33 power-law approximation (Dittus–Boelter simplified) rather
-       than the 6th-order polynomial in SMD_MSR_Modelica.Nuclear.FuelChannel.
-       Radiation is only active when OuterRegion == true (outermost annular region). */
+       hA uses a FF^hAExp power-law approximation (default exponent 0.33, a fit
+       to laminar modified Seider-Tate recalculations; Cooke & Cox ORNL-TM-4079,
+       Pathirana 2023 dissertation) rather than the 6th-order polynomial in
+       SMD_MSR_Modelica.Nuclear.FuelChannel.
+       Each fuel node's film convection is driven by that node's own temperature.
+       Radiation is only active when OuterRegion == true (outermost annular region).
+       Fission-power split: kFN1/kFN2/kG divide the total fission source among fuel
+       node 1, fuel node 2, and the graphite node (fissPowFN1/fissPowFN2/fissPowGN).
+       The flat kG = 0.07 is the lumped dissertation assumption (93%/7% fuel/graphite
+       split). The nine-region models pass region-resolved shares instead,
+       kG[i] = kHT1[i] + kHT2[i], whose RAW total ~0.060769 is intentionally never
+       renormalized to the thesis 7% (see the qModChain9R provenance note and the
+       data-derived normalizer fSaltNormalizer9R in SegmentedMSR.Reactors). */
     model FuelChannel
       parameter SMD_MSR_Modelica.Units.Volume vol_FN1;
       parameter SMD_MSR_Modelica.Units.Volume vol_FN2;
@@ -20,7 +30,7 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.Density rho_grap;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_fuel;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_grap;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate Vdot_fuelNom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate Vdot_fuelNom;
       parameter SMD_MSR_Modelica.Units.VolumeImportance kFN1;
       parameter SMD_MSR_Modelica.Units.VolumeImportance kFN2;
       parameter SMD_MSR_Modelica.Units.VolumeImportance kG;
@@ -39,6 +49,8 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.Area ArF1;
       parameter SMD_MSR_Modelica.Units.Area ArF2;
       parameter SMD_MSR_Modelica.Units.Emissivity e;
+      parameter Real hAExp = 0.33
+        "Exponent of the FF power-law convection scaling hA = hAnom*FF^hAExp (default 0.33, fit to laminar modified Seider-Tate recalculations)";
       parameter SMD_MSR_Modelica.Units.InitMode initMode = SMD_MSR_Modelica.Units.InitMode.FixedStart;
       SMD_MSR_Modelica.Units.MassFlowRate mdot_fuel;
       SMD_MSR_Modelica.Units.Convection hA;
@@ -61,7 +73,7 @@ package MSRR
       SMD_MSR_Modelica.Units.Power fissPowGN;
       SMD_MSR_Modelica.Units.Power decayPowFN1;
       SMD_MSR_Modelica.Units.Power decayPowFN2;
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn decayHeat annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn decayHeat annotation(
         Placement(transformation(origin = {-80, 32}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-80, 30}, extent = {{-10, -10}, {10, 10}})));
       output SMD_MSR_Modelica.PortsConnectors.TempOut grapNode annotation(
         Placement(transformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}})));
@@ -78,22 +90,53 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.Temperature Tinf;
       
     initial equation
-      // FixedStart: set node temperatures from TF1_0, TF2_0, TG_0 parameters.
-      // SteadyState: solver finds equilibrium (all derivatives = 0).
-      if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
-        fuelNode1.T = TF1_0;
-        fuelNode2.T = TF2_0;
-        grapNode.T = TG_0;
-      else
-        der(fuelNode1.T) = 0;
-        der(fuelNode2.T) = 0;
-        der(grapNode.T) = 0;
-      end if;
+      /* Parameter validity: convPowFN1/convPowFN2 split the film convection
+         through kHT_FN1/(kHT_FN1 + kHT_FN2) and kHT_FN2/(kHT_FN1 + kHT_FN2).
+         A zero share on one node is a valid limiting case; the denominator
+         only requires a strictly positive sum of nonnegative shares. */
+       assert(kHT_FN1 >= 0 and kHT_FN2 >= 0 and kHT_FN1 + kHT_FN2 > 0,
+         "FuelChannel: heat-transfer shares must be nonnegative and not both zero");
+       // Remaining parameter validity: LF1/LF2 divide condPowFN1/condPowFN2; vol_* are
+       // the fuel/graphite inventories; rho_*/cP_* are density and heat capacity;
+       // Vdot_fuelNom is the nominal flow.
+       assert(LF1 > 0, "FuelChannel: LF1 must be > 0 (divides condPowFN1)");
+       assert(LF2 > 0, "FuelChannel: LF2 must be > 0 (divides condPowFN2)");
+       assert(vol_FN1 > 0, "FuelChannel: vol_FN1 must be > 0 (node-1 fuel inventory)");
+       assert(vol_FN2 > 0, "FuelChannel: vol_FN2 must be > 0 (node-2 fuel inventory)");
+       assert(vol_GN > 0, "FuelChannel: vol_GN must be > 0 (graphite inventory)");
+       assert(rho_fuel > 0, "FuelChannel: rho_fuel must be > 0 (fuel density)");
+       assert(rho_grap > 0, "FuelChannel: rho_grap must be > 0 (graphite density)");
+       assert(cP_fuel > 0, "FuelChannel: cP_fuel must be > 0 (fuel heat capacity)");
+       assert(cP_grap > 0, "FuelChannel: cP_grap must be > 0 (graphite heat capacity)");
+       assert(Vdot_fuelNom > 0, "FuelChannel: Vdot_fuelNom must be > 0 (nominal fuel flow)");
+       assert(hAExp >= 0 and hAExp <= 1,
+         "FuelChannel: hAExp must be in [0,1] (FF power-law convection exponent)");
+       assert(not OuterRegion or (e >= 0 and e <= 1),
+         "FuelChannel: e must be in [0,1] when OuterRegion is true");
+       // FixedStart: set node temperatures from TF1_0, TF2_0, TG_0 parameters.
+       // SteadyState: solver finds equilibrium (all derivatives = 0).
+       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
+         fuelNode1.T = TF1_0;
+         fuelNode2.T = TF2_0;
+         grapNode.T = TG_0;
+       else
+         der(fuelNode1.T) = 0;
+         der(fuelNode2.T) = 0;
+         der(grapNode.T) = 0;
+       end if;
     equation
+      // Flow-domain guard (runtime, not init-only): hA below takes the
+      // fractional power FF^hAExp of this externally supplied signal;
+      // reverse flow is unsupported.
+      assert(fuelFlowFraction.FF >= 0,
+        "FuelChannel: fuelFlowFraction.FF must be >= 0; reverse flow unsupported");
 //hA = hAnom*(0.8215*fuelFlowFraction.FF^6 - 4.108*fuelFlowFraction.FF^5 + 7.848*fuelFlowFraction.FF^4 - 7.165*fuelFlowFraction.FF^3 + 3.004*fuelFlowFraction.FF^2 + 0.5903*fuelFlowFraction.FF + 0.008537);
 //hA = (hAnom);
-      // FF^0.33: simplified Dittus–Boelter scaling for internal channel convection.
-      hA = hAnom*fuelFlowFraction.FF^(0.33);
+      // FF^hAExp (default 0.33): power-law fit to laminar modified Seider-Tate
+      // recalculations (core channel Re ~ 776; Dittus-Boelter does not apply).
+      // Evaluate on a nonnegative proxy so the guard above,
+      // not an invalid-root race, aborts reverse-flow runs.
+      hA = hAnom*noEvent(max(fuelFlowFraction.FF, 0.0))^(hAExp);
       mdot_fuel = Vdot_fuelNom*rho_fuel*fuelFlowFraction.FF*regionFlowFrac;
       m_FN1 = vol_FN1*rho_fuel;
       m_FN2 = vol_FN2*rho_fuel;
@@ -106,7 +149,7 @@ package MSRR
       condPowFN1 = ((KF*Ac)/LF1)*(temp_In.T - fuelNode1.T);
       condPowFN2 = ((KF*Ac)/LF2)*(fuelNode1.T - fuelNode2.T);
       convPowFN1 = hA*(kHT_FN1/(kHT_FN1 + kHT_FN2))*(fuelNode1.T - grapNode.T);
-      convPowFN2 = hA*(kHT_FN2/(kHT_FN1 + kHT_FN2))*(fuelNode1.T - grapNode.T);
+      convPowFN2 = hA*(kHT_FN2/(kHT_FN1 + kHT_FN2))*(fuelNode2.T - grapNode.T);
       if OuterRegion == true then
         radPowFN1 = e*SMD_MSR_Modelica.Constants.SigSBK*ArF1*((Tinf + 273.15)^4 - (fuelNode1.T + 273.15)^4);
         radPowFN2 = e*SMD_MSR_Modelica.Constants.SigSBK*ArF2*((Tinf + 273.15)^4 - (fuelNode2.T + 273.15)^4);
@@ -130,9 +173,10 @@ package MSRR
     end FuelChannel;
 
     /* Counter-flow shell-and-tube HX used in MSRR assembly models.
-       This variant uses a simplified hA correlation: primary hA = 0.07797e6×FF^0.33
-       (instead of the 6th-order polynomial in SMD_MSR_Modelica.HeatTransport.HeatExchanger).
-       Secondary hA is linear in FF with a 1% floor to prevent zero hA at zero flow.
+       Primary hA: hApn = hApNom*FF^hAExp (power-law, default exponent 0.33,
+       vs the 6th-order polynomial in SMD_MSR_Modelica.HeatTransport.HeatExchanger).
+       Secondary hA: hAsn = (0.99*FF + 0.01)*hAsNom; 1% floor avoids zero hA at
+       zero flow.
        Supports detailedStateInitWeight to blend reconstructed vs. explicit initial states. */
     model HeatExchanger
       parameter SMD_MSR_Modelica.Units.Volume vol_P;
@@ -144,8 +188,8 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_P;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_T;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_S;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotPnom;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotSnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotPnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotSnom;
       parameter SMD_MSR_Modelica.Units.Convection hApNom;
       parameter SMD_MSR_Modelica.Units.Convection hAsNom;
       parameter SMD_MSR_Modelica.Units.Conductivity Kp;
@@ -157,6 +201,8 @@ package MSRR
       parameter Boolean EnableRad;
       parameter SMD_MSR_Modelica.Units.Area ArShell;
       parameter SMD_MSR_Modelica.Units.Emissivity e;
+      parameter Real hAExp = 0.33
+        "Exponent of the primary-side FF power-law convection scaling hApn = hApNom*FF^hAExp (default 0.33)";
       parameter SMD_MSR_Modelica.Units.Temperature Tinf;
       parameter SMD_MSR_Modelica.Units.Temperature TpIn_0;
       parameter SMD_MSR_Modelica.Units.Temperature TpOut_0;
@@ -250,17 +296,39 @@ package MSRR
         Placement(visible = true, transformation(origin = {-69, 49}, extent = {{-9, -9}, {9, 9}}, rotation = 0), iconTransformation(origin = {-70, 50}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn secondaryFF annotation(
         Placement(visible = true, transformation(origin = {123, -47}, extent = {{-11, -11}, {11, 11}}, rotation = 0), iconTransformation(origin = {130, -50}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn P_decay annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn P_decay annotation(
         Placement(visible = true, transformation(origin = {30, 50}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {30, 50}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
     initial equation
+      // Parameter validity: L_shell/L_tube (via LpN/LsN) and numNodes divide the
+      // conduction terms; vol_*/rho_*/cP_* are fluid/wall mass and thermal capacity;
+      // VdotPnom/VdotSnom are nominal flows; hApNom/hAsNom are convection coefficients.
+      assert(vol_P > 0, "HeatExchanger: vol_P must be > 0 (primary fluid inventory)");
+      assert(vol_T > 0, "HeatExchanger: vol_T must be > 0 (tube-wall inventory)");
+      assert(vol_S > 0, "HeatExchanger: vol_S must be > 0 (secondary fluid inventory)");
+      assert(rhoP > 0, "HeatExchanger: rhoP must be > 0 (primary density)");
+      assert(rhoT > 0, "HeatExchanger: rhoT must be > 0 (tube-wall density)");
+      assert(rhoS > 0, "HeatExchanger: rhoS must be > 0 (secondary density)");
+      assert(cP_P > 0, "HeatExchanger: cP_P must be > 0 (primary heat capacity)");
+      assert(cP_T > 0, "HeatExchanger: cP_T must be > 0 (tube-wall heat capacity)");
+      assert(cP_S > 0, "HeatExchanger: cP_S must be > 0 (secondary heat capacity)");
+      assert(L_shell > 0, "HeatExchanger: L_shell must be > 0 (divides condPow primary)");
+      assert(L_tube > 0, "HeatExchanger: L_tube must be > 0 (divides condPow secondary)");
+      assert(VdotPnom > 0, "HeatExchanger: VdotPnom must be > 0 (primary nominal flow)");
+      assert(VdotSnom > 0, "HeatExchanger: VdotSnom must be > 0 (secondary nominal flow)");
+      assert(hApNom > 0, "HeatExchanger: hApNom must be > 0 (primary convection coefficient)");
+      assert(hAsNom > 0, "HeatExchanger: hAsNom must be > 0 (secondary convection coefficient)");
+      assert(hAExp >= 0 and hAExp <= 1,
+        "HeatExchanger: hAExp must be in [0,1] (primary FF power-law convection exponent)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "HeatExchanger: e must be in [0,1] when EnableRad is true");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         T_PN1 = detailedStateInitWeight*T_PN1_0 + (1 - detailedStateInitWeight)*(TpIn_0 - (TpIn_0 - TpOut_0)/4);
         T_PN2 = detailedStateInitWeight*T_PN2_0 + (1 - detailedStateInitWeight)*(TpIn_0 - 2*(TpIn_0 - TpOut_0)/4);
         T_PN3 = detailedStateInitWeight*T_PN3_0 + (1 - detailedStateInitWeight)*(TpIn_0 - 3*(TpIn_0 - TpOut_0)/4);
         T_out_pFluid.T = detailedStateInitWeight*T_PN4_0 + (1 - detailedStateInitWeight)*TpOut_0;
-        T_SN1 = detailedStateInitWeight*T_SN1_0 + (1 - detailedStateInitWeight)*(TpIn_0 + (TsOut_0 - TpIn_0));
-        T_SN2 = detailedStateInitWeight*T_SN2_0 + (1 - detailedStateInitWeight)*(TpIn_0 + 2*(TsOut_0 - TpIn_0));
-        T_SN3 = detailedStateInitWeight*T_SN3_0 + (1 - detailedStateInitWeight)*(TpIn_0 + 3*(TsOut_0 - TpIn_0));
+        T_SN1 = detailedStateInitWeight*T_SN1_0 + (1 - detailedStateInitWeight)*(TsIn_0 + (TsOut_0 - TsIn_0)/4);
+        T_SN2 = detailedStateInitWeight*T_SN2_0 + (1 - detailedStateInitWeight)*(TsIn_0 + 2*(TsOut_0 - TsIn_0)/4);
+        T_SN3 = detailedStateInitWeight*T_SN3_0 + (1 - detailedStateInitWeight)*(TsIn_0 + 3*(TsOut_0 - TsIn_0)/4);
         T_out_sFluid.T = detailedStateInitWeight*T_SN4_0 + (1 - detailedStateInitWeight)*TsOut_0;
         T_TN1 = detailedStateInitWeight*T_TN1_0 + (1 - detailedStateInitWeight)*((T_PN1*hApn + T_SN3*hAsn)/(hApn + hAsn));
         T_TN2 = detailedStateInitWeight*T_TN2_0 + (1 - detailedStateInitWeight)*((T_PN3*hApn + T_SN1*hAsn)/(hApn + hAsn));
@@ -277,12 +345,21 @@ package MSRR
         der(T_out_sFluid.T) = 0;
       end if;
     equation
+      // Flow-domain guards (runtime, not init-only): reverse flow is unsupported
+      // on both sides. The secondary law is linear in FF.
+      assert(primaryFF.FF >= 0,
+        "HeatExchanger: primaryFF.FF must be >= 0; reverse flow unsupported");
+      assert(secondaryFF.FF >= 0,
+        "HeatExchanger: secondaryFF.FF must be >= 0; reverse flow unsupported");
       mDotP = VdotPnom*rhoP*primaryFF.FF;
       mDotS = VdotSnom*rhoS*secondaryFF.FF;
-      // Primary hA: FF^0.33 power-law (see commented-out polynomial alternative above).
-      hApn = 0.07797E6*primaryFF.FF^(0.33);
-      // Secondary hA: 99% scales linearly with FF; 1% floor prevents singularity at zero flow.
-      hAsn = (1 - 0.01)*1E6*hAsNom*secondaryFF.FF + 0.01E6*hAsNom;
+      // Primary hA: FF^hAExp (default 0.33) power-law scaled by the nominal
+      // primary coefficient. Evaluate on a nonnegative proxy so the guard above,
+      // not an invalid-root race, aborts reverse-flow runs.
+      hApn = hApNom*noEvent(max(primaryFF.FF, 0.0))^(hAExp);
+      // Secondary hA: 99% scales linearly with FF; 1% floor prevents singularity
+      // at zero flow.
+      hAsn = (0.99*secondaryFF.FF + 0.01)*hAsNom;
       volPN = vol_P/4;
       volTN = vol_T/2;
       volSN = vol_S/4;
@@ -362,7 +439,11 @@ package MSRR
        All feedbacks are summed by sumFB and fed to mPKE. Fuel exits each
        zone via the outermost channel (R1, R4, R7, R9) and is mixed in the
        upper plenum (MixingPot) before leaving the core. The FlowDistributor
-       maps the pump FF to per-zone flow fractions with optional zone trips. */
+       maps the pump FF to per-zone flow fractions with optional zone trips.
+       Per-region graphite fission fractions reuse kG = kHT1[i] + kHT2[i]
+       (sums to ~6.1% of core power vs the thesis's nominal 7% fuel/graphite
+       split, Methodology Sec. Heat Generation), i.e. region-wise graphite
+       heating is taken as flux-weighted via the convection split arrays. */
     model MSRR9R
       parameter Integer numGroups = 6;
       parameter SMD_MSR_Modelica.Units.DecayConstant lambda[numGroups];
@@ -375,12 +456,16 @@ package MSRR
         "Optional forcing-window neutron floor passed to mPKE";
       parameter SMD_MSR_Modelica.Units.InitiationTime nFloorSwitchTime = 1e100
         "Time to switch from nFloor to nFloorDuringForcing in mPKE";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = 34.8025
+        "Nominal core fuel transit time passed to mPKE [s]";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = 8.7006
+        "Nominal loop fuel transit time passed to mPKE [s]";
       parameter SMD_MSR_Modelica.Units.TemperatureReactivityCoef aF;
       parameter SMD_MSR_Modelica.Units.TemperatureReactivityCoef aG;
       parameter SMD_MSR_Modelica.Units.Density rho_fuel;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_fuel;
       parameter SMD_MSR_Modelica.Units.Conductivity kFuel;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel;
       parameter SMD_MSR_Modelica.Units.Density rho_grap;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_grap;
       parameter SMD_MSR_Modelica.Units.Volume volF1[9];
@@ -411,10 +496,10 @@ package MSRR
       parameter Boolean EnableRad;
       parameter SMD_MSR_Modelica.Units.Emissivity e;
       parameter SMD_MSR_Modelica.Units.Temperature T_inf;
-      parameter Integer numSourceSteps = 1;
+      parameter Integer numSourceSteps(min = 1) = 1;
       parameter SMD_MSR_Modelica.Units.InitiationTime sourceStepTime[numSourceSteps] = {0};
       parameter SMD_MSR_Modelica.Units.NeutronEmissionRate sourceAmplitude[numSourceSteps] = {0};
-      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = 8.7006, nomTauCore = 34.8025) annotation(
+      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = nomTauLoop, nomTauCore = nomTauCore) annotation(
         Placement(transformation(origin = {174.6, 322.2}, extent = {{-63.6, -63.6}, {42.4, 42.4}}, rotation = -90)));
       SMD_MSR_Modelica.Nuclear.PowerBlock powerblock(P(displayUnit = "W") = 1E6, TotalFuelVol = 0.5) annotation(
         Placement(transformation(origin = {-92.4, 330.2}, extent = {{29.6, -59.2}, {-44.4, 14.8}}, rotation = -90)));
@@ -470,7 +555,7 @@ package MSRR
         Placement(transformation(origin = {217, -827}, extent = {{-21, -21}, {21, 21}}), iconTransformation(origin = {-40, -38}, extent = {{-18, -18}, {18, 18}})));
       output SMD_MSR_Modelica.PortsConnectors.TempOut tempOut annotation(
         Placement(transformation(origin = {1117, 235}, extent = {{-28, -28}, {28, 28}}), iconTransformation(origin = {40, 40}, extent = {{-18, -18}, {18, 18}})));
-      output SMD_MSR_Modelica.PortsConnectors.VolumetircPowerOut volumetircPowerOut annotation(
+      output SMD_MSR_Modelica.PortsConnectors.VolumetricPowerOut volumetricPowerOut annotation(
         Placement(transformation(origin = {-144, 522}, extent = {{13, 13}, {-13, -13}}), iconTransformation(origin = {41, -39}, extent = {{-17, -17}, {17, 17}})));
       input SMD_MSR_Modelica.PortsConnectors.RealIn realIn annotation(
         Placement(transformation(origin = {290, 450}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {0, 40}, extent = {{-18, -18}, {18, 18}})));
@@ -612,7 +697,7 @@ package MSRR
         Line(points = {{-159, 367}, {-196, 367}, {-196, -52}, {590, -52}, {590, -312}, {658, -312}}, color = {220, 138, 221}, thickness = 1));
       connect(powerblock.decayPowerM, R8.decayHeat) annotation(
         Line(points = {{-159, 367}, {-198, 367}, {-198, -54}, {590, -54}, {590, -513}, {664, -513}}, color = {220, 138, 221}, thickness = 1));
-      connect(powerblock.decayPowerM, volumetircPowerOut) annotation(
+      connect(powerblock.decayPowerM, volumetricPowerOut) annotation(
         Line(points = {{-159, 367}, {-159, 489.6}, {-144, 489.6}, {-144, 522}}, color = {220, 138, 221}, thickness = 1));
       connect(flowFracIn, flowDistributor.flowFracIn) annotation(
         Line(points = {{329, -1071}, {329, -929}, {336, -929}}, color = {255, 120, 0}, thickness = 1));
@@ -675,10 +760,14 @@ package MSRR
         "Optional forcing-window neutron floor passed to mPKE";
       parameter SMD_MSR_Modelica.Units.InitiationTime nFloorSwitchTime = 1e100
         "Time to switch from nFloor to nFloorDuringForcing in mPKE";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = 34.8025
+        "Nominal core fuel transit time passed to mPKE [s]";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = 8.7006
+        "Nominal loop fuel transit time passed to mPKE [s]";
       parameter SMD_MSR_Modelica.Units.Density rho_fuel;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_fuel;
       parameter SMD_MSR_Modelica.Units.Conductivity kFuel;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel;
       parameter SMD_MSR_Modelica.Units.Density rho_grap;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_grap;
       parameter SMD_MSR_Modelica.Units.Temperature TF1_0;
@@ -686,11 +775,11 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.Temperature TG_0;
       parameter Boolean EnableRad;
       parameter SMD_MSR_Modelica.Units.Temperature Tinf; 
-      parameter Integer numSourceSteps = 1;
+      parameter Integer numSourceSteps(min = 1) = 1;
       parameter SMD_MSR_Modelica.Units.InitiationTime sourceStepTime[numSourceSteps] = {0};
       parameter SMD_MSR_Modelica.Units.NeutronEmissionRate sourceAmplitude[numSourceSteps] = {0};
       
-      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = 8.7006, nomTauCore = 34.8025) annotation(
+      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = nomTauLoop, nomTauCore = nomTauCore) annotation(
         Placement(transformation(origin = {-205.6, 84.4}, extent = {{-20.4, -20.4}, {13.6, 13.6}})));
       MSRR.Components.FuelChannel fuelchannel(rho_fuel = rho_fuel, rho_grap = rho_grap, cP_fuel = cP_fuel, cP_grap = cP_grap, Vdot_fuelNom = volDotFuel, kFN1 = 0.4650, kFN2 = 0.4650, kG = 0.07, kHT_FN1 = 0.5, kHT_FN2 = 0.5, TF1_0 = TF1_0, TF2_0 = TF2_0, TG_0 = TG_0, regionFlowFrac = 1, KF = kFuel, Ac = 1.5882, LF1 = 0.7875, LF2 = 0.7875, OuterRegion = EnableRad, ArF1 = 3.5172, ArF2 = 3.5172, e = 0.080000, Tinf = Tinf, vol_FN1 = 0.2, vol_FN2 = 0.2, vol_GN = 1.758, hAnom = 2.4916e+04) annotation(
         Placement(transformation(origin = {-80.3333, -106.278}, extent = {{-67.2222, -67.2222}, {40.3333, 53.7778}})));
@@ -708,7 +797,7 @@ package MSRR
         Placement(transformation(origin = {-368, -156}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {0, -38}, extent = {{-18, -18}, {18, 18}})));
       output SMD_MSR_Modelica.PortsConnectors.TempOut tempOut annotation(
         Placement(transformation(origin = {158, -76}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {38, 40}, extent = {{-18, -18}, {18, 18}})));
-      output SMD_MSR_Modelica.PortsConnectors.VolumetircPowerOut volumetircPowerOut annotation(
+      output SMD_MSR_Modelica.PortsConnectors.VolumetricPowerOut volumetricPowerOut annotation(
         Placement(transformation(origin = {160, -14}, extent = {{-6, -6}, {6, 6}}), iconTransformation(origin = {39, -39}, extent = {{-17, -17}, {17, 17}})));
       input SMD_MSR_Modelica.PortsConnectors.RealIn realIn annotation(
         Placement(transformation(origin = {-372, 148}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-2, 40}, extent = {{-18, -18}, {18, 18}})));
@@ -744,7 +833,7 @@ package MSRR
         Line(points = {{-368, -156}, {-257, -156}, {-257, -158}, {-148, -158}}, color = {204, 0, 0}));
       connect(fuelchannel.fuelNode2, tempOut) annotation(
         Line(points = {{-67, -83}, {47, -83}, {47, -76}, {158, -76}}, color = {204, 0, 0}));
-      connect(powerblock.decayPowerM, volumetircPowerOut) annotation(
+      connect(powerblock.decayPowerM, volumetricPowerOut) annotation(
         Line(points = {{-188, -14}, {160, -14}}, color = {220, 138, 221}, thickness = 1));
       connect(realIn, mpke.ReactivityIn) annotation(
         Line(points = {{-372, 148}, {-220, 148}, {-220, 92}}, thickness = 1));
@@ -760,11 +849,11 @@ package MSRR
      Secondary loop: HX → pipeHXtoUHX → UHX → pipeUHXtoHX → HX.
      External reactivity (step + sinusoidal) is summed and injected into core kinetics. */
   model R1MSRRuhx
-    parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
     parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
     parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
     parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-    parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
     parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
     parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
     parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -781,10 +870,10 @@ package MSRR
     parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode1 = 570;
     parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode2 = 580.4100;
     parameter SMD_MSR_Modelica.Units.Temperature graphiteTempSetPoint = 570.0000028;
-    parameter Integer numUhxSteps = 1;
+    parameter Integer numUhxSteps(min = 1) = 1;
     parameter SMD_MSR_Modelica.Units.InitiationTime uhxDemandStepTime[numUhxSteps] = {0};
     parameter SMD_MSR_Modelica.Units.Power uhxDemandAmplitude[numUhxSteps] = {powerLevel*1E6};
-    parameter Integer numExternalReactivitySteps = 2;
+    parameter Integer numExternalReactivitySteps(min = 1) = 2;
     parameter SMD_MSR_Modelica.Units.InitiationTime externalReactivityStepTime[numExternalReactivitySteps] = {0, 4000};
     parameter Real externalReactivityAmplitude[numExternalReactivitySteps] = {0, 0};
     parameter Boolean heatLossEnabled = false
@@ -881,15 +970,15 @@ package MSRR
       Line(points = {{-110, -50}, {26, -50}, {26, 12}}, color = {245, 121, 0}));
     connect(primaryPump.flowFrac, pipeHXtoCore.flowFrac) annotation(
       Line(points = {{-722, 106}, {-346, 106}, {-346, -173}, {-294, -173}}, color = {245, 121, 0}));
-    connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+    connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
       Line(points = {{-605, -120}, {-460, -120}, {-460, 56}, {-426, 56}}, color = {220, 138, 221}));
-    connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+    connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
       Line(points = {{-605, -120}, {-328, -120}, {-328, 70}, {-300, 70}}, color = {220, 138, 221}));
-    connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+    connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
       Line(points = {{-605, -120}, {-222, -120}, {-222, 56}, {-192, 56}}, color = {220, 138, 221}));
-    connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+    connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
       Line(points = {{-605, -120}, {-471, -120}, {-471, 132}, {-16, 132}, {-16, 54}}, color = {220, 138, 221}));
-    connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+    connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
       Line(points = {{-605, -120}, {-575, -120}, {-575, -230}, {-294, -230}, {-294, -192}}, color = {220, 138, 221}));
     connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
       Line(points = {{-334, -182}, {-644, -182}, {-644, -118}}, color = {204, 0, 0}));
@@ -900,11 +989,11 @@ package MSRR
   /* Full primary-and-secondary loop with nine-region core (MSRR9R).
      Identical loop topology to R1MSRRuhx; only the core block differs. */
   model R9MSRRuhx
-    parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
     parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
     parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
     parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-    parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
     parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
     parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
     parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -924,10 +1013,10 @@ package MSRR
     parameter SMD_MSR_Modelica.Units.Temperature TF1_0_regions[9] = {fuelTempSetPointNode1, 562.89, 584.55, 609.63, 561.59, 574.98, 590.48, 560.60, 565.19};
     parameter SMD_MSR_Modelica.Units.Temperature TF2_0_regions[9] = {fuelTempSetPointNode2, 572.69, 597.23, 615.83, 567.64, 582.82, 594.30, 562.63, 566.46};
     parameter SMD_MSR_Modelica.Units.Temperature TG_0_regions[9] = {graphiteTempSetPoint, 566.21, 591.18, 613.04, 564.19, 580.21, 593.17, 562.06, 566.66};
-    parameter Integer numUhxSteps = 1;
+    parameter Integer numUhxSteps(min = 1) = 1;
     parameter SMD_MSR_Modelica.Units.InitiationTime uhxDemandStepTime[numUhxSteps] = {0};
     parameter SMD_MSR_Modelica.Units.Power uhxDemandAmplitude[numUhxSteps] = {powerLevel*1E6};
-    parameter Integer numExternalReactivitySteps = 2;
+    parameter Integer numExternalReactivitySteps(min = 1) = 2;
     parameter SMD_MSR_Modelica.Units.InitiationTime externalReactivityStepTime[numExternalReactivitySteps] = {0, 4000};
     parameter Real externalReactivityAmplitude[numExternalReactivitySteps] = {0, 0};
     parameter Boolean heatLossEnabled = false
@@ -952,7 +1041,7 @@ package MSRR
       Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
     SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
       Placement(transformation(origin = {-66, -300}, extent = {{-27, -27}, {27, 27}})));
-    SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
       Placement(transformation(origin = {-636, 136}, extent = {{-24, -32}, {24, 16}})));
     SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
       Placement(transformation(origin = {9, -69.333}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -1022,15 +1111,15 @@ package MSRR
       Line(points = {{-636, 112}, {-18, 112}, {-18, 58}}, color = {245, 121, 0}));
     connect(primaryPump.flowFrac, pipeHXtoCore.flowFrac) annotation(
       Line(points = {{-636, 112}, {-206, 112}, {-206, -141}, {-234, -141}}, color = {245, 121, 0}));
-    connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+    connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
       Line(points = {{-526, -112}, {-428, -112}, {-428, 48}, {-402, 48}}, color = {220, 138, 221}));
-    connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+    connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
       Line(points = {{-526, -112}, {-304, -112}, {-304, 68}, {-282, 68}}, color = {220, 138, 221}));
-    connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+    connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
       Line(points = {{-526, -112}, {-188, -112}, {-188, 52}, {-170, 52}}, color = {220, 138, 221}));
-    connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+    connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
       Line(points = {{-526, -112}, {-524, -112}, {-524, -184}, {-234, -184}, {-234, -160}}, color = {220, 138, 221}));
-    connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+    connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
       Line(points = {{-526, -112}, {-92, -112}, {-92, 92}, {44, 92}, {44, 58}}, color = {220, 138, 221}));
     connect(secondaryPump.flowFrac, heatExchanger.secondaryFF) annotation(
       Line(points = {{10, -100}, {108, -100}, {108, -4}}, color = {245, 121, 0}));
@@ -1151,7 +1240,7 @@ package MSRR
       "0-power fuel-node-2 setpoint from core/init/setpoints_1r.csv";
     parameter SMD_MSR_Modelica.Units.Temperature startupGraphiteSetPoint = 570.00000000002
       "0-power graphite setpoint from core/init/setpoints_1r.csv";
-    parameter Integer startupSourceSteps = 8;
+    parameter Integer startupSourceSteps(min = 1) = 8;
     parameter SMD_MSR_Modelica.Units.InitiationTime startupSourceStepTime[startupSourceSteps] = {
       0, 40200, 43200, 65400, 68400, 83400, 86400, 101400
     };
@@ -1223,7 +1312,7 @@ package MSRR
       "0-power fuel-node-2 setpoint from core/init/setpoints_9r.csv";
     parameter SMD_MSR_Modelica.Units.Temperature startupGraphiteSetPoint = 552.8354270952742
       "0-power graphite setpoint from core/init/setpoints_9r.csv";
-    parameter Integer startupSourceSteps = 8;
+    parameter Integer startupSourceSteps(min = 1) = 8;
     parameter SMD_MSR_Modelica.Units.InitiationTime startupSourceStepTime[startupSourceSteps] = {
       0, 40200, 43200, 65400, 68400, 83400, 86400, 101400
     };
@@ -1431,11 +1520,11 @@ package MSRR
   package Transients
     package R1fullSteps
       model R1MSRR2dol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -1492,15 +1581,15 @@ package MSRR
           Line(points = {{-659, -166}, {-409.5, -166}, {-409.5, 0}, {-411, 0}}, color = {204, 0, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
           Line(points = {{-191, -93}, {-390, -93}, {-390, -205}, {-699, -205}}, color = {204, 0, 0}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 10}, {-411, 10}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 70}, {-300, 70}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-659, 98}, {-163, 98}, {-163, 65}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-659, -205}, {-659, 114}, {-3, 114}, {-3, 54}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-353.5, -205}, {-353.5, -102}, {-150, -102}}, color = {220, 138, 221}, thickness = 1));
         connect(constantVolumetricPower.volPow, pipeHXtoUHX.PiDecay_Heat) annotation(
           Line(points = {{-29, -145}, {-74, -145}, {-74, -52}, {-48, -52}}, color = {220, 138, 221}, thickness = 1));
@@ -1535,11 +1624,11 @@ package MSRR
       end R1MSRR2dol;
 
       model R1MSRR1dol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -1596,15 +1685,15 @@ package MSRR
           Line(points = {{-659, -166}, {-409.5, -166}, {-409.5, 0}, {-411, 0}}, color = {204, 0, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
           Line(points = {{-191, -93}, {-390, -93}, {-390, -205}, {-699, -205}}, color = {204, 0, 0}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 10}, {-411, 10}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 70}, {-300, 70}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-659, 98}, {-163, 98}, {-163, 65}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-659, -205}, {-659, 114}, {-3, 114}, {-3, 54}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-353.5, -205}, {-353.5, -102}, {-150, -102}}, color = {220, 138, 221}, thickness = 1));
         connect(constantVolumetricPower.volPow, pipeHXtoUHX.PiDecay_Heat) annotation(
           Line(points = {{-29, -145}, {-74, -145}, {-74, -52}, {-48, -52}}, color = {220, 138, 221}, thickness = 1));
@@ -1639,11 +1728,11 @@ package MSRR
       end R1MSRR1dol;
 
       model R1MSRRhalfDol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -1700,15 +1789,15 @@ package MSRR
           Line(points = {{-659, -166}, {-409.5, -166}, {-409.5, 0}, {-411, 0}}, color = {204, 0, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
           Line(points = {{-191, -93}, {-390, -93}, {-390, -205}, {-699, -205}}, color = {204, 0, 0}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 10}, {-411, 10}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 70}, {-300, 70}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-659, 98}, {-163, 98}, {-163, 65}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-659, -205}, {-659, 114}, {-3, 114}, {-3, 54}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-353.5, -205}, {-353.5, -102}, {-150, -102}}, color = {220, 138, 221}, thickness = 1));
         connect(constantVolumetricPower.volPow, pipeHXtoUHX.PiDecay_Heat) annotation(
           Line(points = {{-29, -145}, {-74, -145}, {-74, -52}, {-48, -52}}, color = {220, 138, 221}, thickness = 1));
@@ -1743,11 +1832,11 @@ package MSRR
       end R1MSRRhalfDol;
 
       model R1MSRRpOneDol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -1804,15 +1893,15 @@ package MSRR
           Line(points = {{-659, -166}, {-409.5, -166}, {-409.5, 0}, {-411, 0}}, color = {204, 0, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
           Line(points = {{-191, -93}, {-390, -93}, {-390, -205}, {-699, -205}}, color = {204, 0, 0}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 10}, {-411, 10}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 70}, {-300, 70}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-659, 98}, {-163, 98}, {-163, 65}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-659, -205}, {-659, 114}, {-3, 114}, {-3, 54}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-353.5, -205}, {-353.5, -102}, {-150, -102}}, color = {220, 138, 221}, thickness = 1));
         connect(constantVolumetricPower.volPow, pipeHXtoUHX.PiDecay_Heat) annotation(
           Line(points = {{-29, -145}, {-74, -145}, {-74, -52}, {-48, -52}}, color = {220, 138, 221}, thickness = 1));
@@ -1847,11 +1936,11 @@ package MSRR
       end R1MSRRpOneDol;
 
       model R1MSRR100pcm
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -1908,15 +1997,15 @@ package MSRR
           Line(points = {{-659, -166}, {-409.5, -166}, {-409.5, 0}, {-411, 0}}, color = {204, 0, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
           Line(points = {{-191, -93}, {-390, -93}, {-390, -205}, {-699, -205}}, color = {204, 0, 0}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 10}, {-411, 10}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 70}, {-300, 70}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-659, 98}, {-163, 98}, {-163, 65}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-659, -205}, {-659, 114}, {-3, 114}, {-3, 54}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-353.5, -205}, {-353.5, -102}, {-150, -102}}, color = {220, 138, 221}, thickness = 1));
         connect(constantVolumetricPower.volPow, pipeHXtoUHX.PiDecay_Heat) annotation(
           Line(points = {{-29, -145}, {-74, -145}, {-74, -52}, {-48, -52}}, color = {220, 138, 221}, thickness = 1));
@@ -1951,11 +2040,11 @@ package MSRR
       end R1MSRR100pcm;
 
       model R1MSRR10pcm
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2012,15 +2101,15 @@ package MSRR
           Line(points = {{-659, -166}, {-409.5, -166}, {-409.5, 0}, {-411, 0}}, color = {204, 0, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, core1R.tempIn) annotation(
           Line(points = {{-191, -93}, {-390, -93}, {-390, -205}, {-699, -205}}, color = {204, 0, 0}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 10}, {-411, 10}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(core1R.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-659, -205}, {-448, -205}, {-448, 70}, {-300, 70}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-659, 98}, {-163, 98}, {-163, 65}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(core1R.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-659, -205}, {-659, 114}, {-3, 114}, {-3, 54}}, color = {220, 138, 221}, thickness = 1));
-        connect(core1R.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(core1R.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-659, -205}, {-353.5, -205}, {-353.5, -102}, {-150, -102}}, color = {220, 138, 221}, thickness = 1));
         connect(constantVolumetricPower.volPow, pipeHXtoUHX.PiDecay_Heat) annotation(
           Line(points = {{-29, -145}, {-74, -145}, {-74, -52}, {-48, -52}}, color = {220, 138, 221}, thickness = 1));
@@ -2057,11 +2146,11 @@ package MSRR
 
     package R9fullSteps
       model R9MSRR2dol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2087,7 +2176,7 @@ package MSRR
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
         SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -2138,15 +2227,15 @@ package MSRR
           Line(points = {{175, 92}, {175, 98}, {176, 98}, {176, -82}, {-51, -82}, {-51, -41}}, color = {245, 121, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, msre9r.tempIn) annotation(
           Line(points = {{-173, -137}, {-173, -242}, {-552, -242}}, color = {204, 0, 0}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-486, -243}, {-319, -243}, {-319, -146}, {-132, -146}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-486, -243}, {-434, -243}, {-434, 49}, {-403, 49}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-486, -243}, {-318, -243}, {-318, 68}, {-282, 68}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-486, -243}, {-200, -243}, {-200, 56}, {-174, 56}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-486, -243}, {-434, -243}, {-434, 112}, {13, 112}}, color = {220, 138, 221}, thickness = 1));
         connect(primaryPump.flowFrac, msre9r.flowFracIn) annotation(
           Line(points = {{-550, 92}, {-550, -53}, {-552, -53}, {-552, -178}}, color = {245, 121, 0}, thickness = 1));
@@ -2161,11 +2250,11 @@ package MSRR
       end R9MSRR2dol;
 
       model R9MSRR1dol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2191,7 +2280,7 @@ package MSRR
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
         SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -2242,15 +2331,15 @@ package MSRR
           Line(points = {{175, 92}, {175, 98}, {176, 98}, {176, -82}, {-51, -82}, {-51, -41}}, color = {245, 121, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, msre9r.tempIn) annotation(
           Line(points = {{-173, -137}, {-175, -242}, {-554, -242}}, color = {204, 0, 0}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-319, -243}, {-319, -146}, {-132, -146}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 49}, {-403, 49}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-488, -243}, {-318, -243}, {-318, 68}, {-282, 68}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-200, -243}, {-200, 56}, {-174, 56}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 112}, {15, 112}}, color = {220, 138, 221}, thickness = 1));
         connect(primaryPump.flowFrac, msre9r.flowFracIn) annotation(
           Line(points = {{-550, 92}, {-550, -53}, {-554, -53}, {-554, -178}}, color = {245, 121, 0}, thickness = 1));
@@ -2265,11 +2354,11 @@ package MSRR
       end R9MSRR1dol;
 
       model R9MSRRhalfDol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2295,7 +2384,7 @@ package MSRR
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
         SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -2346,15 +2435,15 @@ package MSRR
           Line(points = {{175, 92}, {175, 98}, {176, 98}, {176, -82}, {-51, -82}, {-51, -41}}, color = {245, 121, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, msre9r.tempIn) annotation(
           Line(points = {{-173, -137}, {-175, -242}, {-554, -242}}, color = {204, 0, 0}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-319, -243}, {-319, -146}, {-132, -146}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 49}, {-403, 49}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-488, -243}, {-318, -243}, {-318, 68}, {-282, 68}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-200, -243}, {-200, 56}, {-174, 56}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 112}, {15, 112}}, color = {220, 138, 221}, thickness = 1));
         connect(primaryPump.flowFrac, msre9r.flowFracIn) annotation(
           Line(points = {{-550, 92}, {-550, -53}, {-554, -53}, {-554, -178}}, color = {245, 121, 0}, thickness = 1));
@@ -2369,11 +2458,11 @@ package MSRR
       end R9MSRRhalfDol;
 
       model R9MSRRpOneDol
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2399,7 +2488,7 @@ package MSRR
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
         SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -2450,15 +2539,15 @@ package MSRR
           Line(points = {{175, 92}, {175, 98}, {176, 98}, {176, -82}, {-51, -82}, {-51, -41}}, color = {245, 121, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, msre9r.tempIn) annotation(
           Line(points = {{-173, -137}, {-175, -242}, {-554, -242}}, color = {204, 0, 0}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-319, -243}, {-319, -146}, {-132, -146}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 49}, {-403, 49}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-488, -243}, {-318, -243}, {-318, 68}, {-282, 68}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-200, -243}, {-200, 56}, {-174, 56}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 112}, {15, 112}}, color = {220, 138, 221}, thickness = 1));
         connect(primaryPump.flowFrac, msre9r.flowFracIn) annotation(
           Line(points = {{-550, 92}, {-550, -53}, {-554, -53}, {-554, -178}}, color = {245, 121, 0}, thickness = 1));
@@ -2473,11 +2562,11 @@ package MSRR
       end R9MSRRpOneDol;
 
       model R9MSRR100pcm
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2503,7 +2592,7 @@ package MSRR
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
         SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -2554,15 +2643,15 @@ package MSRR
           Line(points = {{175, 92}, {175, 98}, {176, 98}, {176, -82}, {-51, -82}, {-51, -41}}, color = {245, 121, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, msre9r.tempIn) annotation(
           Line(points = {{-173, -137}, {-175, -242}, {-554, -242}}, color = {204, 0, 0}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-319, -243}, {-319, -146}, {-132, -146}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 49}, {-403, 49}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-488, -243}, {-318, -243}, {-318, 68}, {-282, 68}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-488, -243}, {-200, -243}, {-200, 56}, {-174, 56}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-488, -243}, {-434, -243}, {-434, 112}, {15, 112}}, color = {220, 138, 221}, thickness = 1));
         connect(primaryPump.flowFrac, msre9r.flowFracIn) annotation(
           Line(points = {{-550, 92}, {-550, -53}, {-554, -53}, {-554, -178}}, color = {245, 121, 0}, thickness = 1));
@@ -2577,11 +2666,11 @@ package MSRR
       end R9MSRR100pcm;
 
       model R9MSRR10pcm
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotFuel = 0.011493;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
         parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
         parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate volDotCoolant = 0.030219;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
         parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
         parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
@@ -2607,7 +2696,7 @@ package MSRR
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 1000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
         SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
@@ -2658,15 +2747,15 @@ package MSRR
           Line(points = {{175, 92}, {175, 98}, {176, 98}, {176, -82}, {-51, -82}, {-51, -41}}, color = {245, 121, 0}, thickness = 1));
         connect(pipeHXtoCore.PiTempOut, msre9r.tempIn) annotation(
           Line(points = {{-173, -137}, {-173, -368}, {-662, -368}}, color = {204, 0, 0}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeHXtoCore.PiDecay_Heat) annotation(
           Line(points = {{-596, -369}, {-319, -369}, {-319, -146}, {-132, -146}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeCoreToDHRS.PiDecay_Heat) annotation(
           Line(points = {{-596, -369}, {-596, 49}, {-403, 49}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, dhrs.pDecay) annotation(
+        connect(msre9r.volumetricPowerOut, dhrs.pDecay) annotation(
           Line(points = {{-596, -369}, {-318, -369}, {-318, 68}, {-282, 68}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
+        connect(msre9r.volumetricPowerOut, pipeDHRStoHX.PiDecay_Heat) annotation(
           Line(points = {{-596, -369}, {-200, -369}, {-200, 56}, {-174, 56}}, color = {220, 138, 221}, thickness = 1));
-        connect(msre9r.volumetircPowerOut, heatExchanger.P_decay) annotation(
+        connect(msre9r.volumetricPowerOut, heatExchanger.P_decay) annotation(
           Line(points = {{-596, -369}, {-596, 112}, {15, 112}}, color = {220, 138, 221}, thickness = 1));
         connect(primaryPump.flowFrac, msre9r.flowFracIn) annotation(
           Line(points = {{-550, 92}, {-550, -53}, {-662, -53}, {-662, -304}}, color = {245, 121, 0}, thickness = 1));

@@ -33,9 +33,9 @@ Typical config keys:
 - `ssh_options`: optional extra SSH arguments
 
 `agent_command` and `remote_repo_relpath` are alternatives. If `agent_command`
-is omitted, the client uses `remote_repo_relpath` when configured, otherwise it
-falls back to a path derived from the local repo location relative to the local
-home directory.
+is omitted, the client uses `remote_repo_relpath`. If neither is set, the
+client raises an error rather than guessing a remote path from the local
+checkout.
 
 ## Example setup
 
@@ -64,6 +64,27 @@ submit it with `--tasks 8`.
 The worker wrapper exports `MODELICA_SSH_TASKS` and defaults common math-library
 thread counts to `1` so many independent OpenModelica jobs do not silently
 oversubscribe a node.
+
+## Orphan-job reaping
+
+The worker wrapper touches a `heartbeat` file in the job directory every 60 s
+while the command runs. A job that still looks `RUNNING` but has no heartbeat
+activity for `1800` seconds (default) is classified as `FAILED` and records an
+`orphaned_at` marker, which releases its reserved task slots. This covers
+worker reboots and remote launches that never actually started. The threshold
+also applies to jobs with no heartbeat at all, measured from their
+`submitted_at` timestamp, so wedged submissions cannot block capacity forever.
+
+Tune or disable with:
+
+```bash
+export MODELICA_SSH_STALE_HEARTBEAT_SECONDS=3600   # default: 1800
+export MODELICA_SSH_STALE_HEARTBEAT_SECONDS=0      # disable reaping entirely
+```
+
+The comparison uses the shared filesystem mtime against the login node clock,
+so keep NTP sane across the cluster. Terminal states (`exit_code` present)
+always take precedence over heartbeat staleness.
 
 ## Typical usage
 

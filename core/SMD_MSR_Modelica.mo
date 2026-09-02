@@ -23,8 +23,8 @@ package SMD_MSR_Modelica
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_P;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_T;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_S;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotPnom;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotSnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotPnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotSnom;
       parameter SMD_MSR_Modelica.Units.Convection hApNom;
       parameter SMD_MSR_Modelica.Units.Convection hAsNom;
       parameter SMD_MSR_Modelica.Units.Conductivity Kp;
@@ -117,11 +117,31 @@ package SMD_MSR_Modelica
         Placement(transformation(origin = {-90, 49}, extent = {{-9, -9}, {9, 9}}), iconTransformation(origin = {-90, 50}, extent = {{-10, -10}, {10, 10}})));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn secondaryFF annotation(
         Placement(transformation(origin = {100, -47}, extent = {{-11, -11}, {11, 11}}), iconTransformation(origin = {90, -50}, extent = {{-10, -10}, {10, 10}})));
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn P_decay annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn P_decay annotation(
         Placement(transformation(origin = {10, 50}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {0, 50}, extent = {{-10, -10}, {10, 10}})));
     initial equation
+      // Parameter validity: L_shell/L_tube (via LpN/LsN) and numNodes divide the
+      // conduction terms; vol_*/rho_*/cP_* are fluid/wall mass and thermal capacity;
+      // VdotPnom/VdotSnom are nominal flows; hApNom/hAsNom are convection coefficients.
+      assert(vol_P > 0, "HeatExchanger: vol_P must be > 0 (primary fluid inventory)");
+      assert(vol_T > 0, "HeatExchanger: vol_T must be > 0 (tube-wall inventory)");
+      assert(vol_S > 0, "HeatExchanger: vol_S must be > 0 (secondary fluid inventory)");
+      assert(rhoP > 0, "HeatExchanger: rhoP must be > 0 (primary density)");
+      assert(rhoT > 0, "HeatExchanger: rhoT must be > 0 (tube-wall density)");
+      assert(rhoS > 0, "HeatExchanger: rhoS must be > 0 (secondary density)");
+      assert(cP_P > 0, "HeatExchanger: cP_P must be > 0 (primary heat capacity)");
+      assert(cP_T > 0, "HeatExchanger: cP_T must be > 0 (tube-wall heat capacity)");
+      assert(cP_S > 0, "HeatExchanger: cP_S must be > 0 (secondary heat capacity)");
+      assert(L_shell > 0, "HeatExchanger: L_shell must be > 0 (divides condPow primary)");
+      assert(L_tube > 0, "HeatExchanger: L_tube must be > 0 (divides condPow secondary)");
+      assert(VdotPnom > 0, "HeatExchanger: VdotPnom must be > 0 (primary nominal flow)");
+      assert(VdotSnom > 0, "HeatExchanger: VdotSnom must be > 0 (secondary nominal flow)");
+      assert(hApNom > 0, "HeatExchanger: hApNom must be > 0 (primary convection coefficient)");
+      assert(hAsNom > 0, "HeatExchanger: hAsNom must be > 0 (secondary convection coefficient)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "HeatExchanger: e must be in [0,1] when EnableRad is true");
       // FixedStart: primary nodes linearly interpolated between TpIn_0 and TpOut_0;
-      // secondary nodes between TpIn_0 and TsOut_0 (counter-flow ordering);
+      // secondary nodes between TsIn_0 and TsOut_0 (counter-flow ordering);
       // tube-wall nodes initialized to the hA-weighted average of adjacent fluid nodes.
       // SteadyState: all derivatives set to zero; solver finds equilibrium.
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
@@ -131,9 +151,9 @@ package SMD_MSR_Modelica
         T_out_pFluid.T = TpOut_0;
         T_TN1 = (T_PN1*hApn + T_SN3*hAsn)/(hApn + hAsn);
         T_TN2 = (T_PN3*hApn + T_SN1*hAsn)/(hApn + hAsn);
-        T_SN1 = TpIn_0 + (TsOut_0 - TpIn_0);
-        T_SN2 = TpIn_0 + 2*(TsOut_0 - TpIn_0);
-        T_SN3 = TpIn_0 + 3*(TsOut_0 - TpIn_0);
+        T_SN1 = TsIn_0 + (TsOut_0 - TsIn_0)/4;
+        T_SN2 = TsIn_0 + 2*(TsOut_0 - TsIn_0)/4;
+        T_SN3 = TsIn_0 + 3*(TsOut_0 - TsIn_0)/4;
         T_out_sFluid.T = TsOut_0;
       else
         der(T_PN1) = 0;
@@ -148,6 +168,13 @@ package SMD_MSR_Modelica
         der(T_out_sFluid.T) = 0;
       end if;
     equation
+      // Flow-domain guards (runtime, not init-only): both hA correlations are
+      // sixth-order polynomials, so they stay real at FF < 0, but reverse flow
+      // is unsupported on either side.
+      assert(primaryFF.FF >= 0,
+        "HeatExchanger: primaryFF.FF must be >= 0; reverse flow unsupported");
+      assert(secondaryFF.FF >= 0,
+        "HeatExchanger: secondaryFF.FF must be >= 0; reverse flow unsupported");
       mDotP = VdotPnom*rhoP*primaryFF.FF;
       mDotS = VdotSnom*rhoS*secondaryFF.FF;
       // Per-node hA = (nominal total hA / 4) x P6(FF), where P6 is a 6th-order
@@ -201,7 +228,31 @@ package SMD_MSR_Modelica
       convPowSN2 = hAsn*(T_TN2 - T_SN2);
       convPowSN3 = hAsn*(T_TN1 - T_SN3);
       convPowSN4 = hAsn*(T_TN1 - T_out_sFluid.T);
-
+      if EnableRad == true then
+        radPowPN1 = e*SMD_MSR_Modelica.Constants.SigSBK*Ar_PN*((Tinf + 273.15)^4 - (T_PN1 + 273.15)^4);
+        radPowPN2 = e*SMD_MSR_Modelica.Constants.SigSBK*Ar_PN*((Tinf + 273.15)^4 - (T_PN2 + 273.15)^4);
+        radPowPN3 = e*SMD_MSR_Modelica.Constants.SigSBK*Ar_PN*((Tinf + 273.15)^4 - (T_PN3 + 273.15)^4);
+        radPowPN4 = e*SMD_MSR_Modelica.Constants.SigSBK*Ar_PN*((Tinf + 273.15)^4 - (T_out_pFluid.T + 273.15)^4);
+      else
+        radPowPN1 = 0;
+        radPowPN2 = 0;
+        radPowPN3 = 0;
+        radPowPN4 = 0;
+      end if;
+      decayPowPN1 = P_decay.Q*volPN;
+      decayPowPN2 = P_decay.Q*volPN;
+      decayPowPN3 = P_decay.Q*volPN;
+      decayPowPN4 = P_decay.Q*volPN;
+      powPN1 = flowPowPN1 + condPowPN1 - convPowPN1 + radPowPN1 + decayPowPN1;
+      powPN2 = flowPowPN2 + condPowPN2 - convPowPN2 + radPowPN2 + decayPowPN2;
+      powPN3 = flowPowPN3 + condPowPN3 - convPowPN3 + radPowPN3 + decayPowPN3;
+      powPN4 = flowPowPN4 + condPowPN4 - convPowPN4 + radPowPN4 + decayPowPN4;
+      powTN1 = convPowPN1 + convPowPN2 - convPowSN3 - convPowSN4;
+      powTN2 = convPowPN3 + convPowPN4 - convPowSN1 - convPowSN2;
+      powSN1 = flowPowSN1 + convPowSN1;
+      powSN2 = flowPowSN2 + convPowSN2;
+      powSN3 = flowPowSN3 + convPowSN3;
+      powSN4 = flowPowSN4 + convPowSN4;
     end HeatExchanger;
 
     /* Air-cooled single-node radiator (primary fluid node + air node).
@@ -215,8 +266,8 @@ package SMD_MSR_Modelica
       parameter SMD_MSR_Modelica.Units.Density rhoS;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_P;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_S;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotPnom;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotSnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotPnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotSnom;
       parameter SMD_MSR_Modelica.Units.Convection hAnom;
       parameter SMD_MSR_Modelica.Units.Conductivity Kp;
       parameter SMD_MSR_Modelica.Units.Area Ac_P;
@@ -253,9 +304,31 @@ package SMD_MSR_Modelica
       input SMD_MSR_Modelica.PortsConnectors.RealIn flowFracS annotation(
         Placement(transformation(origin = {-22, 30}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-8, -24}, extent = {{-10, -10}, {10, 10}})));
     initial equation
+      // Parameter validity: Lp divides powPcond; vol_*/rho_*/cP_* are fluid mass and
+      // thermal capacity; VdotPnom/VdotSnom are nominal flows; hAnom is the convection
+      // coefficient.
+      assert(vol_P > 0, "Radiator: vol_P must be > 0 (primary fluid inventory)");
+      assert(vol_S > 0, "Radiator: vol_S must be > 0 (secondary fluid inventory)");
+      assert(rhoP > 0, "Radiator: rhoP must be > 0 (primary density)");
+      assert(rhoS > 0, "Radiator: rhoS must be > 0 (secondary density)");
+      assert(cP_P > 0, "Radiator: cP_P must be > 0 (primary heat capacity)");
+      assert(cP_S > 0, "Radiator: cP_S must be > 0 (secondary heat capacity)");
+      assert(Lp > 0, "Radiator: Lp must be > 0 (divides powPcond)");
+      assert(VdotPnom > 0, "Radiator: VdotPnom must be > 0 (primary nominal flow)");
+      assert(VdotSnom > 0, "Radiator: VdotSnom must be > 0 (secondary nominal flow)");
+      assert(hAnom > 0, "Radiator: hAnom must be > 0 (convection coefficient)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "Radiator: e must be in [0,1] when EnableRad is true");
       tempOutP.T = Tp_0;
       tempOutS = Ts_0;
     equation
+      // Flow-domain guards (runtime, not init-only): the primary hA polynomial
+      // stays real at FF < 0 and the secondary leg is pure advection, but
+      // reverse flow is unsupported on both sides.
+      assert(flowFracP.FF >= 0,
+        "Radiator: flowFracP.FF must be >= 0; reverse flow unsupported");
+      assert(flowFracS.R >= 0,
+        "Radiator: flowFracS.R must be >= 0; reverse flow unsupported");
       tempInAir = tempInS.R*realToTemp;
       mDotP = VdotPnom*rhoP*flowFracP.FF;
       mDotS = VdotSnom*rhoS*flowFracS.R;
@@ -270,7 +343,7 @@ package SMD_MSR_Modelica
       powPSconv = hA*(tempOutP.T - tempOutS);
       powPcond = ((Kp*Ac_P)/Lp)*(tempInP.T - tempOutP.T);
       if EnableRad == true then
-        powP_rad = e*SMD_MSR_Modelica.Constants.SigSBK*Ar_P*((Tinf + 273.15)^4 - (tempInP.T + 273.15)^4);
+        powP_rad = e*SMD_MSR_Modelica.Constants.SigSBK*Ar_P*((Tinf + 273.15)^4 - (tempOutP.T + 273.15)^4);
       else
         powP_rad = 0;
       end if;
@@ -288,7 +361,7 @@ package SMD_MSR_Modelica
       parameter SMD_MSR_Modelica.Units.Volume vol;
       parameter SMD_MSR_Modelica.Units.Density rho;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate vDotNom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate vDotNom;
       parameter SMD_MSR_Modelica.Units.TimeConstant DHRS_tK;
       parameter SMD_MSR_Modelica.Units.Power DHRS_MaxP_Rm;
       parameter SMD_MSR_Modelica.Units.Power DHRS_P_Bleed;
@@ -310,7 +383,7 @@ package SMD_MSR_Modelica
       SMD_MSR_Modelica.Units.Power powCond;
       SMD_MSR_Modelica.Units.Power powRad;
       SMD_MSR_Modelica.Units.Power powDecay;
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn pDecay annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn pDecay annotation(
         Placement(transformation(origin = {-50, 48}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-50, 40}, extent = {{-10, -10}, {10, 10}})));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn flowFrac annotation(
         Placement(transformation(origin = {-50, -30}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-50, -40}, extent = {{-10, -10}, {10, 10}})));
@@ -319,12 +392,26 @@ package SMD_MSR_Modelica
       output SMD_MSR_Modelica.PortsConnectors.TempOut tempOut annotation(
         Placement(transformation(origin = {50, 0}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {48, 0}, extent = {{-10, -10}, {10, 10}})));
     initial equation
+      // Parameter validity: L divides powCond; DHRS_tK divides the sigmoid ramp;
+      // vol/rho/cP are the node mass and thermal capacity; vDotNom is nominal flow.
+      assert(rho > 0, "DHRS: rho must be > 0 (density, node mass)");
+      assert(vol > 0, "DHRS: vol must be > 0 (fluid inventory)");
+      assert(cP > 0, "DHRS: cP must be > 0 (specific heat capacity)");
+      assert(L > 0, "DHRS: L must be > 0 (divides powCond)");
+      assert(DHRS_tK > 0, "DHRS: DHRS_tK must be > 0 (sigmoid ramp time constant divisor)");
+      assert(vDotNom > 0, "DHRS: vDotNom must be > 0 (nominal flow)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "DHRS: e must be in [0,1] when EnableRad is true");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         tempOut.T = T_0;
       else
         der(tempOut.T) = 0;
       end if;
     equation
+      // Flow-domain guard (runtime, not init-only): advection assumes a
+      // nonnegative externally supplied flow fraction.
+      assert(flowFrac.FF >= 0,
+        "DHRS: flowFrac.FF must be >= 0; reverse flow unsupported");
       m = vol*rho;
       mDot = vDotNom*rho*flowFrac.FF;
       // Sigmoid ramp-up of removed power from DHRS_P_Bleed to DHRS_MaxP_Rm,
@@ -353,7 +440,7 @@ package SMD_MSR_Modelica
     model Pipe
       parameter SMD_MSR_Modelica.Units.Volume vol;
       parameter Real volFracNode;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate vDotNom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate vDotNom;
       parameter SMD_MSR_Modelica.Units.Density rho;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP;
       parameter SMD_MSR_Modelica.Units.Conductivity K;
@@ -376,25 +463,47 @@ package SMD_MSR_Modelica
       SMD_MSR_Modelica.Units.Power powCondOut;
       SMD_MSR_Modelica.Units.Power powRad;
       SMD_MSR_Modelica.Units.Power powDecay;
-      SMD_MSR_Modelica.Units.ResidentTime tauPiDelay;
-      SMD_MSR_Modelica.Units.ResidentTime varTauPi;
+      SMD_MSR_Modelica.Units.ResidenceTime tauPiDelay;
+      SMD_MSR_Modelica.Units.ResidenceTime varTauPi;
       SMD_MSR_Modelica.Units.Temperature tempPi;
       SMD_MSR_Modelica.Units.Temperature tempPiIn;
       input SMD_MSR_Modelica.PortsConnectors.TempIn PiTemp_IN annotation(
         Placement(transformation(origin = {-36, 2}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-40, 0}, extent = {{-10, -10}, {10, 10}})));
       output SMD_MSR_Modelica.PortsConnectors.TempOut PiTempOut annotation(
         Placement(transformation(origin = {40, 2}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}})));
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn PiDecay_Heat annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn PiDecay_Heat annotation(
         Placement(transformation(origin = {-36, 20}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-40, 20}, extent = {{-10, -10}, {10, 10}})));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn flowFrac annotation(
         Placement(transformation(origin = {-36, -18}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-40, -20}, extent = {{-10, -10}, {10, 10}})));
     initial equation
+      // Parameter validity: mDotNom = rho*vDotNom divides tauPiDelay; L divides
+      // powCondIn/Out; vol/rho/cP are the node mass and thermal capacity;
+      // volFracNode splits the mass. A zero/negative value on any of these either
+      // singularizes a denominator or empties the thermal inventory.
+      // The closed interval [0,1] is intentional: 0 is a pure-delay pipe
+      // (mixed-node mass vanishes); 1 is a well-mixed pipe with no delay
+      // section (tauPiDelay = 0). Both are degenerate limiting models, not
+      // errors. Negative and >1 remain invalid.
+      assert(vDotNom > 0, "Pipe: vDotNom must be > 0 (divides tauPiDelay)");
+      // omc 1.27 evaluation-order caveat: at exact-zero vDotNom initialization aborts on the GENERATED division guard for tauPiDelay (= mPiDelay/(2*mDotNom), parameter-expressible) BEFORE these initial-equation asserts evaluate - only negative vDotNom dies on the custom message above.
+      assert(rho > 0, "Pipe: rho must be > 0 (density, mass and mDotNom)");
+      assert(vol > 0, "Pipe: vol must be > 0 (fluid inventory)");
+      assert(cP > 0, "Pipe: cP must be > 0 (specific heat capacity)");
+      assert(L > 0, "Pipe: L must be > 0 (divides powCondIn/Out)");
+      assert(volFracNode >= 0 and volFracNode <= 1,
+        "Pipe: volFracNode must be in [0,1] (mass split fraction)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "Pipe: e must be in [0,1] when EnableRad is true");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         tempPi = T_0;
       else
         der(tempPi) = 0;
       end if;
     equation
+      // Flow-domain guard (runtime, not init-only): advection and the delay
+      // switching below assume a nonnegative externally supplied flow fraction.
+      assert(flowFrac.FF >= 0,
+        "Pipe: flowFrac.FF must be >= 0; reverse flow unsupported");
       mPi = rho*vol;
       mDotNom = rho*vDotNom;
       mDot = rho*vDotNom*flowFrac.FF;
@@ -402,7 +511,7 @@ package SMD_MSR_Modelica
       mPiDelay = mPi*(1 - volFracNode); // mass in the plug-flow delay section
       tauPiDelay = mPiDelay/(2*mDotNom); // nominal one-way transit time of delay volume
       // varTauPi: actual transit time, clamped to MaxTau at zero flow to avoid singularity.
-      varTauPi = if flowFrac.FF > SMD_MSR_Modelica.Constants.MinTau then tauPiDelay/flowFrac.FF else SMD_MSR_Modelica.Constants.MaxTau;
+      varTauPi = if flowFrac.FF > SMD_MSR_Modelica.Constants.minFlowFraction then tauPiDelay/flowFrac.FF else SMD_MSR_Modelica.Constants.MaxTau;
       tempPiIn = delay(PiTemp_IN.T, varTauPi, SMD_MSR_Modelica.Constants.MaxTau);
       powPi = mPiRep*cP*der(tempPi);
       powFlow = mDot*cP*(tempPiIn - tempPi);
@@ -422,11 +531,16 @@ package SMD_MSR_Modelica
 
     model PrimaryPump
       parameter SMD_MSR_Modelica.Units.FlowFraction freeConvectionFF;
-      parameter SMD_MSR_Modelica.Units.PumpConstant primaryPumpK;
+      parameter SMD_MSR_Modelica.Units.ResidenceTime primaryPumpK;
       parameter SMD_MSR_Modelica.Units.InitiationTime tripPrimaryPump;
       output SMD_MSR_Modelica.PortsConnectors.FlowFractionOut primaryFlowFrac annotation(
         Placement(visible = true, transformation(origin = {-1.77636e-15, -40}, extent = {{-20, -20}, {20, 20}}, rotation = 0), iconTransformation(origin = {1.77636e-15, -60}, extent = {{-20, -20}, {20, 20}}, rotation = 0)));
     initial equation
+      // Parameter validity: primaryPumpK divides the trip coast-down term;
+      // freeConvectionFF is the natural-circulation flow-fraction floor in [0,1].
+      assert(primaryPumpK > 0, "PrimaryPump: primaryPumpK must be > 0 (trip coast-down time constant divisor)");
+      assert(freeConvectionFF >= 0 and freeConvectionFF <= 1,
+        "PrimaryPump: freeConvectionFF must be in [0,1] (natural-circulation flow fraction)");
       primaryFlowFrac.FF = 1;
     equation
       primaryFlowFrac.FF = (1 - freeConvectionFF)*exp(-(1/primaryPumpK)*delay(time, tripPrimaryPump)) + freeConvectionFF;
@@ -438,12 +552,18 @@ package SMD_MSR_Modelica
     /* Ultimate Heat Exchanger (UHX): passive single-node heat sink.
        powDemand is the demanded extraction rate from the secondary coolant;
        at nominal operation this equals reactor power. No hA correlation is
-       needed -- the extraction is treated as a direct power withdrawal. */
+       needed -- the extraction is treated as a direct power withdrawal
+       (ideal demand: powRm is independent of flow). At FF = 0 with
+       nonzero demand the finite node inventory can still be depleted;
+       shipped plant pumps floor FF at freeConvFF > 0, so that case is
+       not a production operating point. Advective mass flow is
+       mDot = vDot*rho*flowFrac.FF; vDot is the volumetric flow at FF = 1. */
     model UHX
       parameter SMD_MSR_Modelica.Units.Volume vol;
       parameter SMD_MSR_Modelica.Units.Density rho;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate vDot;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate vDot
+        "Nominal volumetric flow at FF = 1";
       parameter SMD_MSR_Modelica.Units.Temperature Tp_0;
       parameter SMD_MSR_Modelica.Units.InitMode initMode = SMD_MSR_Modelica.Units.InitMode.FixedStart;
       constant SMD_MSR_Modelica.Units.Power realToPow = 1;
@@ -461,14 +581,26 @@ package SMD_MSR_Modelica
       input SMD_MSR_Modelica.PortsConnectors.RealIn powDemand annotation(
         Placement(visible = true, transformation(origin = {-60, -40}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {-60, -40}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
     initial equation
+      // Parameter validity: vol/rho/cP are the node mass and thermal capacity;
+      // vDot is the nominal flow. No denominators exist, but a nonpositive
+      // inventory or flow is unphysical.
+      assert(rho > 0, "UHX: rho must be > 0 (density, node mass)");
+      assert(vol > 0, "UHX: vol must be > 0 (fluid inventory)");
+      assert(cP > 0, "UHX: cP must be > 0 (specific heat capacity)");
+      assert(vDot > 0, "UHX: vDot must be > 0 (nominal flow)");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         tempOut.T = Tp_0;
       else
         der(tempOut.T) = 0;
       end if;
     equation
+      // Flow-domain guard (runtime, not init-only): this sink is wired to the
+      // same external flow command as the secondary loop and does not
+      // implement reverse-flow switching.
+      assert(flowFrac.FF >= 0,
+        "UHX: flowFrac.FF must be >= 0; reverse flow unsupported");
       m = vol*rho;
-      mDot = vDot*rho;
+      mDot = vDot*rho*flowFrac.FF;
       pow = m*cP*der(tempOut.T);
       powFlow = mDot*cP*(tempIn.T - tempOut.T);
       powRm = powDemand.R*realToPow;
@@ -483,9 +615,9 @@ package SMD_MSR_Modelica
        The mixed node temperature T satisfies the total enthalpy balance;
        temp_Out.T = T is broadcast to downstream components. */
     model MixingPot
-      parameter Integer numStreams;
+      parameter Integer numStreams(min = 1);
       parameter SMD_MSR_Modelica.Units.Volume vol;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotNom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotNom;
       parameter SMD_MSR_Modelica.Units.FlowFraction flowFractionsNom[numStreams];
       parameter SMD_MSR_Modelica.Units.Density rho;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity Cp;
@@ -513,12 +645,26 @@ package SMD_MSR_Modelica
         Placement(transformation(origin = {-58, -60}, extent = {{-20, -20}, {20, 20}}), iconTransformation(origin = {-60, -42}, extent = {{-20, -20}, {20, 20}})));
       input SMD_MSR_Modelica.PortsConnectors.TempIn temp_In[numStreams] annotation(
         Placement(visible = true, transformation(origin = {-60, 0}, extent = {{-20, -20}, {20, 20}}, rotation = 0), iconTransformation(origin = {-60, -2}, extent = {{-20, -20}, {20, 20}}, rotation = 0)));
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn decayHeat annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn decayHeat annotation(
         Placement(transformation(origin = {-58, 58}, extent = {{-22, -22}, {22, 22}}), iconTransformation(origin = {-60, 40}, extent = {{-20, -20}, {20, 20}})));
     initial equation
+      // Parameter validity: L and numStreams divide powCond; vol/rho/Cp are the
+      // node mass and thermal capacity. numStreams also sizes the stream arrays
+      // and must be a positive integer.
+      assert(numStreams >= 1, "MixingPot: numStreams must be >= 1 (stream count and powCond divisor)");
+      assert(rho > 0, "MixingPot: rho must be > 0 (density, node mass)");
+      assert(vol > 0, "MixingPot: vol must be > 0 (fluid inventory)");
+      assert(Cp > 0, "MixingPot: Cp must be > 0 (specific heat capacity)");
+      assert(L > 0, "MixingPot: L must be > 0 (divides powCond)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "MixingPot: e must be in [0,1] when EnableRad is true");
       T = T_0;
     equation
+      // Flow-domain guards (runtime, not init-only): the stream enthalpy
+      // balances do not implement reverse-flow switching.
       for i in 1:numStreams loop
+        assert(flowFraction[i].FF >= 0,
+          "MixingPot: flowFraction[i].FF must be >= 0; reverse flow unsupported");
         mDotIn[i] = VdotNom*flowFraction[i].FF*flowFractionsNom[i]*rho;
         powFlowIn[i] = mDotIn[i]*Cp*temp_In[i].T;
       end for;
@@ -545,7 +691,7 @@ package SMD_MSR_Modelica
        undergoes exponential coast-down toward freeConvectionFF with decay
        constant coastDownK (independent of pump FF). */
     model FlowDistributor
-      parameter Integer numOutput;
+      parameter Integer numOutput(min = 1);
       parameter SMD_MSR_Modelica.Units.FlowFraction freeConvectionFF;
       parameter SMD_MSR_Modelica.Units.PumpConstant coastDownK;
       parameter SMD_MSR_Modelica.Units.InitiationTime regionTripTime[numOutput];
@@ -553,7 +699,17 @@ package SMD_MSR_Modelica
         Placement(transformation(origin = {39, -39}, extent = {{-17, -17}, {17, 17}}), iconTransformation(origin = {19, -39}, extent = {{-17, -17}, {17, 17}})));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn flowFracIn annotation(
         Placement(transformation(origin = {-41, -39}, extent = {{-15, -15}, {15, 15}}), iconTransformation(origin = {19, 3}, extent = {{-15, -15}, {15, 15}})));
+    initial equation
+      // Parameter validity: coastDownK is an exponential decay rate (nonnegative);
+      // freeConvectionFF is a flow-fraction floor in [0,1].
+      assert(coastDownK >= 0, "FlowDistributor: coastDownK must be >= 0 (coast-down rate)");
+      assert(freeConvectionFF >= 0 and freeConvectionFF <= 1,
+        "FlowDistributor: freeConvectionFF must be in [0,1] (natural-circulation flow fraction)");
     equation
+      // Flow-domain guard (runtime): this component multiplies its input FF
+      // into per-region outputs; reverse flow is unsupported.
+      assert(flowFracIn.FF >= 0,
+        "FlowDistributor: flowFracIn.FF must be >= 0; reverse flow unsupported");
       for i in 1:numOutput loop
         flowFracOut[i].FF = (flowFracIn.FF*(1 - freeConvectionFF)*exp(-coastDownK*delay(time, regionTripTime[i], regionTripTime[i]))) + freeConvectionFF;
       end for;
@@ -568,11 +724,11 @@ package SMD_MSR_Modelica
        tripTime the total FF decays exponentially toward freeConvFF with
        time constant tripK. */
     model Pump
-      parameter Integer numRampUp = 1;
-      parameter SMD_MSR_Modelica.Units.PumpConstant rampUpK[numRampUp];
+      parameter Integer numRampUp(min = 1) = 1;
+      parameter SMD_MSR_Modelica.Units.ResidenceTime rampUpK[numRampUp];
       parameter SMD_MSR_Modelica.Units.FlowFraction rampUpTo[numRampUp];
       parameter SMD_MSR_Modelica.Units.InitiationTime rampUpTime[numRampUp];
-      parameter SMD_MSR_Modelica.Units.PumpConstant tripK;
+      parameter SMD_MSR_Modelica.Units.ResidenceTime tripK;
       parameter SMD_MSR_Modelica.Units.InitiationTime tripTime;
       parameter SMD_MSR_Modelica.Units.FlowFraction freeConvFF;
       constant Real epsilon = 1E-4;
@@ -581,7 +737,12 @@ package SMD_MSR_Modelica
       output SMD_MSR_Modelica.PortsConnectors.FlowFractionOut flowFrac annotation(
         Placement(visible = true, transformation(origin = {-1.77636e-15, -40}, extent = {{-20, -20}, {20, 20}}, rotation = 0), iconTransformation(origin = {1.77636e-15, -60}, extent = {{-20, -20}, {20, 20}}, rotation = 0)));
     initial equation
-// primaryFlowFrac.FF = 0;
+      // Parameter validity: tripK and rampUpK[i] are time-constant divisors in the
+      // exponential coast-down and the sigmoid ramp. A zero value singularizes
+      // the 1/tripK and /rampUpK[i] terms.
+      assert(tripK > 0, "Pump: tripK must be > 0 (trip coast-down time constant divisor)");
+      assert(min(rampUpK) > 0, "Pump: rampUpK elements must be > 0 (sigmoid ramp time constant divisor)");
+ // primaryFlowFrac.FF = 0;
     equation
       // Each rampUp[i] is a sigmoid increment toward its target FF; stages are additive.
       for i in 1:numRampUp loop
@@ -610,16 +771,16 @@ package SMD_MSR_Modelica
     end Pump;
 
     model RTMSlayer
-      //first and last layer experiance radiation heat transfer
+      //first and last layer experience radiation heat transfer
       //first node generate heat to emulate an embedded heating element
       //geometry is setup for a can with a hemispherical bottom and characterized by height of cylinder and radius of hemisphere
       //geometry can be changed by changing equations for A0, A, V0 and V
-      parameter Integer numLayers1 = 3;//steel jacket
-      parameter Integer numLayers2 = 6;//insulating jacket
+      parameter Integer numLayers1(min = 1) = 3;//steel jacket
+      parameter Integer numLayers2(min = 1) = 6;//insulating jacket
       parameter SMD_MSR_Modelica.Units.Density rho1 = 8238;//steel jacket
       parameter SMD_MSR_Modelica.Units.Density rho2 = 430;//insulating jacket https://www.rockwool.com/group/advice-and-inspiration/why-stone-wool/thermal-properties/
-      parameter SMD_MSR_Modelica.Units.HeatCapacity Cp1 = 468;//steel jacket
-      parameter SMD_MSR_Modelica.Units.HeatCapacity Cp2 = 0.1;//insulating jacket
+      parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity Cp1 = 468;//steel jacket
+      parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity Cp2 = 0.1;//insulating jacket
       parameter SMD_MSR_Modelica.Units.Length hCylinder = 2.0260;
       parameter SMD_MSR_Modelica.Units.Length radius = 0.8720;
       parameter SMD_MSR_Modelica.Units.Length thickness1 = 0.01;//steel jacket
@@ -631,15 +792,15 @@ package SMD_MSR_Modelica
 
       constant SMD_MSR_Modelica.Units.Power real2pow = 1;
 
-      SMD_MSR_Modelica.Units.Length L1;//discritazised layer thickness of steel
-      SMD_MSR_Modelica.Units.Length L2;//discritazised layer thickness of insulation
+      SMD_MSR_Modelica.Units.Length L1;//discretized layer thickness of steel
+      SMD_MSR_Modelica.Units.Length L2;//discretized layer thickness of insulation
       SMD_MSR_Modelica.Units.Length L[numLayers1 + numLayers2];//layer thickness vector
-      SMD_MSR_Modelica.Units.Length cL[numLayers1 + numLayers2];//cummalative thickness
+      SMD_MSR_Modelica.Units.Length cL[numLayers1 + numLayers2];//cumulative thickness
       SMD_MSR_Modelica.Units.Area A0;//inner area
       SMD_MSR_Modelica.Units.Area A[numLayers1 + numLayers2];//node area
       SMD_MSR_Modelica.Units.Volume V0;//inner volume
       SMD_MSR_Modelica.Units.Volume V[numLayers1 + numLayers2];//node volume
-      SMD_MSR_Modelica.Units.Volume cV[numLayers1 + numLayers2];//cummalative volume
+      SMD_MSR_Modelica.Units.Volume cV[numLayers1 + numLayers2];//cumulative volume
       SMD_MSR_Modelica.Units.Density rho[numLayers1 + numLayers2];
       SMD_MSR_Modelica.Units.Conductivity k[numLayers1 + numLayers2];
       SMD_MSR_Modelica.Units.Temperature T[numLayers1 + numLayers2];
@@ -670,13 +831,13 @@ package SMD_MSR_Modelica
 
     //set up vectors for easy handling
       L[1:numLayers1] = fill(L1, numLayers1);
-      L[numLayers1 + 1:numLayers1 + numLayers2] = fill(L2, numLayers1 + numLayers2);
+      L[numLayers1 + 1:numLayers1 + numLayers2] = fill(L2, numLayers2);
       rho[1:numLayers1] = fill(rho1, numLayers1);
-      rho[numLayers1 + 1:numLayers1 + numLayers2] = fill(rho2, numLayers1 + numLayers2);
+      rho[numLayers1 + 1:numLayers1 + numLayers2] = fill(rho2, numLayers2);
       Cp[1:numLayers1] = fill(Cp1, numLayers1);
-      Cp[numLayers1 + 1:numLayers1 + numLayers2] = fill(Cp2, numLayers1 + numLayers2);
+      Cp[numLayers1 + 1:numLayers1 + numLayers2] = fill(Cp2, numLayers2);
       k[1:numLayers1] = fill(k1, numLayers1);
-      k[numLayers1 + 1:numLayers1 + numLayers2] = fill(k2, numLayers1 + numLayers2);
+      k[numLayers1 + 1:numLayers1 + numLayers2] = fill(k2, numLayers2);
 
       A0 = 2*(22/7)*radius*hCylinder + (22/7)*radius^2 + 2*(22/7)*radius^2;//inner surface area A_cylinder + A_lid + A_hemishpere
       V0 = (22/7)*radius^2*hCylinder + (2/3)*(22/7)*radius^2;//inner volume V_cylinder + V_hemisphere
@@ -684,13 +845,13 @@ package SMD_MSR_Modelica
       cL[1] = L[1];
       V[1] = cV[1] - V0;//first node volume
       for i in 2:numLayers1 + numLayers2 loop
-        cL[i] = cL[i - 1] + L[i];//cummalative length
+        cL[i] = cL[i - 1] + L[i];//cumulative length
         V[i] = cV[i] - cV[i - 1];//node volume
       end for;
 
       for i in 1:numLayers1 + numLayers2 loop
         A[i] = 2*(22/7)*(radius + cL[i])*hCylinder + (22/7)*(radius + cL[i])^2 + 2*(22/7)*(radius + cL[i])^2;//inner surface area A_cylinder + A_lid + A_hemishpere
-        cV[i] = (22/7)*(radius + cL[i])^2*hCylinder + (22/7)*cL[i]*(radius + cL[i])^2 + (2/3)*(22/7)*(radius + cL[i])^2;//cummalative volume V_cylinder + V_hemisphere + V_lid
+        cV[i] = (22/7)*(radius + cL[i])^2*hCylinder + (22/7)*cL[i]*(radius + cL[i])^2 + (2/3)*(22/7)*(radius + cL[i])^2;//cumulative volume V_cylinder + V_hemisphere + V_lid
       end for;
 
       radIn = eIn*SMD_MSR_Modelica.Constants.SigSBK*A0*((Tin.T + 273.15)^4 - (T[1] + 273.15)^4 );//radiation in to node 1
@@ -699,7 +860,7 @@ package SMD_MSR_Modelica
       for i in 1:numLayers1 + numLayers2 - 1 loop
         cond[i] = (k[i]*A[i]/L[i])*(T[i] - T[i + 1]);//set up conduction terms
       end for;
-      powGen = (real2pow);
+      powGen = heaterPower.R*real2pow;
       pow = rho.*V.*Cp.*der(T);//node energy
 
       pow[1] = radIn - cond[1] + powGen;//node 1 energy balance
@@ -727,8 +888,8 @@ package SMD_MSR_Modelica
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_P;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_T;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_S;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotPnom;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate VdotSnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotPnom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate VdotSnom;
       parameter SMD_MSR_Modelica.Units.Convection hApNom;
       parameter SMD_MSR_Modelica.Units.Convection hAsNom;
       parameter SMD_MSR_Modelica.Units.Conductivity Kp;
@@ -820,20 +981,47 @@ package SMD_MSR_Modelica
         Placement(transformation(origin = {-90, 49}, extent = {{-9, -9}, {9, 9}}), iconTransformation(origin = {-90, 50}, extent = {{-10, -10}, {10, 10}})));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn secondaryFF annotation(
         Placement(transformation(origin = {100, -47}, extent = {{-11, -11}, {11, 11}}), iconTransformation(origin = {90, -50}, extent = {{-10, -10}, {10, 10}})));
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn P_decay annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn P_decay annotation(
         Placement(transformation(origin = {10, 50}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {0, 50}, extent = {{-10, -10}, {10, 10}})));
     initial equation
+      // Parameter validity: L_shell/L_tube (via LpN/LsN) divide the conduction
+      // terms; vol_*/rho_*/cP_* are fluid/wall mass and thermal capacity;
+      // VdotPnom/VdotSnom are nominal flows; hApNom/hAsNom are convection coefficients.
+      assert(vol_P > 0, "HeatExchangerwithHeat: vol_P must be > 0 (primary fluid inventory)");
+      assert(vol_T > 0, "HeatExchangerwithHeat: vol_T must be > 0 (tube-wall inventory)");
+      assert(vol_S > 0, "HeatExchangerwithHeat: vol_S must be > 0 (secondary fluid inventory)");
+      assert(rhoP > 0, "HeatExchangerwithHeat: rhoP must be > 0 (primary density)");
+      assert(rhoT > 0, "HeatExchangerwithHeat: rhoT must be > 0 (tube-wall density)");
+      assert(rhoS > 0, "HeatExchangerwithHeat: rhoS must be > 0 (secondary density)");
+      assert(cP_P > 0, "HeatExchangerwithHeat: cP_P must be > 0 (primary heat capacity)");
+      assert(cP_T > 0, "HeatExchangerwithHeat: cP_T must be > 0 (tube-wall heat capacity)");
+      assert(cP_S > 0, "HeatExchangerwithHeat: cP_S must be > 0 (secondary heat capacity)");
+      assert(L_shell > 0, "HeatExchangerwithHeat: L_shell must be > 0 (divides condPow primary)");
+      assert(L_tube > 0, "HeatExchangerwithHeat: L_tube must be > 0 (divides condPow secondary)");
+      assert(VdotPnom > 0, "HeatExchangerwithHeat: VdotPnom must be > 0 (primary nominal flow)");
+      assert(VdotSnom > 0, "HeatExchangerwithHeat: VdotSnom must be > 0 (secondary nominal flow)");
+      assert(hApNom > 0, "HeatExchangerwithHeat: hApNom must be > 0 (primary convection coefficient)");
+      assert(hAsNom > 0, "HeatExchangerwithHeat: hAsNom must be > 0 (secondary convection coefficient)");
+      assert(not EnableRad or (e >= 0 and e <= 1),
+        "HeatExchangerwithHeat: e must be in [0,1] when EnableRad is true");
       T_PN1 = TpIn_0 - (TpIn_0 - TpOut_0)/4;
       T_PN2 = TpIn_0 - 2*(TpIn_0 - TpOut_0)/4;
       T_PN3 = TpIn_0 - 3*(TpIn_0 - TpOut_0)/4;
       T_out_pFluid.T = TpOut_0;
       T_TN1 = (T_PN1*hApn + T_SN3*hAsn)/(hApn + hAsn);
       T_TN2 = (T_PN3*hApn + T_SN1*hAsn)/(hApn + hAsn);
-      T_SN1 = TpIn_0 + (TsOut_0 - TpIn_0);
-      T_SN2 = TpIn_0 + 2*(TsOut_0 - TpIn_0);
-      T_SN3 = TpIn_0 + 3*(TsOut_0 - TpIn_0);
+      T_SN1 = TsIn_0 + (TsOut_0 - TsIn_0)/4;
+      T_SN2 = TsIn_0 + 2*(TsOut_0 - TsIn_0)/4;
+      T_SN3 = TsIn_0 + 3*(TsOut_0 - TsIn_0)/4;
       T_out_sFluid.T = TsOut_0;
     equation
+      // Flow-domain guards (runtime, not init-only): both hA correlations are
+      // sixth-order polynomials, so they stay real at FF < 0, but reverse flow
+      // is unsupported on either side.
+      assert(primaryFF.FF >= 0,
+        "HeatExchangerwithHeat: primaryFF.FF must be >= 0; reverse flow unsupported");
+      assert(secondaryFF.FF >= 0,
+        "HeatExchangerwithHeat: secondaryFF.FF must be >= 0; reverse flow unsupported");
       mDotP = VdotPnom*rhoP*primaryFF.FF;
       mDotS = VdotSnom*rhoS*secondaryFF.FF;
       hApn = (hApNom/4)*(0.8215*primaryFF.FF^6 - 4.108*primaryFF.FF^5 + 7.848*primaryFF.FF^4 - 7.165*primaryFF.FF^3 + 3.004*primaryFF.FF^2 + 0.5903*primaryFF.FF + 0.008537);
@@ -923,7 +1111,7 @@ package SMD_MSR_Modelica
        The external neutron source S is normalised to 1.58x10^20 n/s (~ full-power flux). */
     model PKE
       //Parameter declaration
-      parameter Integer numGroups = 6;
+      parameter Integer numGroups(min = 1) = 6;
       parameter SMD_MSR_Modelica.Units.DecayConstant lambda[numGroups];
       parameter SMD_MSR_Modelica.Units.DelayedNeutronFrac beta[numGroups];
       parameter SMD_MSR_Modelica.Units.NeutronGenerationTime LAMBDA;
@@ -943,7 +1131,7 @@ package SMD_MSR_Modelica
       SMD_MSR_Modelica.Units.PrecursorDecayRate CGDecay[numGroups];
       SMD_MSR_Modelica.Units.Reactivity reactivity;
       SMD_MSR_Modelica.Units.Reactivity externalReactivityIn;
-      SMD_MSR_Modelica.Units.NomalizedNeutronEmissionRate nomS;
+      SMD_MSR_Modelica.Units.NormalizedNeutronEmissionRate nomS;
       SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloorActive;
       SMD_MSR_Modelica.Units.NominalNeutronPopulation nClamped;
       Real nDotRaw;
@@ -956,6 +1144,22 @@ package SMD_MSR_Modelica
       input SMD_MSR_Modelica.PortsConnectors.RealIn ReactivityIn annotation(
         Placement(transformation(origin = {-36, 38}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-40, 20}, extent = {{-10, -10}, {10, 10}})));
     initial equation
+      /* Parameter validity: LAMBDA divides the prompt nDotRaw term and the
+         precursor production terms below; lambda[i] decays each precursor
+         group; the beta[i] fractions build sumBeta consumed by nDotRaw.
+         A zero yield in one delayed group is a valid limiting case, so
+         beta[i] requires only nonnegativity plus a strictly positive SUM
+         -- min=0 Units typing alone is not validation. */
+      assert(LAMBDA > 0,
+        "PKE: neutron generation time LAMBDA must be > 0");
+      for i in 1:numGroups loop
+        assert(lambda[i] > 0,
+          "PKE: precursor decay constant lambda element must be > 0");
+        assert(beta[i] >= 0,
+          "PKE: delayed-neutron fraction beta element must be >= 0");
+      end for;
+      assert(sum(beta) > 0,
+        "PKE: delayed-neutron fractions must have a strictly positive sum");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         n_population.n = max(n_0, nFloor);
         for i in 1:numGroups loop
@@ -993,16 +1197,22 @@ package SMD_MSR_Modelica
     /* Modified PKE for circulating-fuel MSR (Dulla et al. formulation).
        Delayed-neutron precursors are swept out of the core during out-of-core
        transit (varTauLoop) and return with radioactive decay applied (CGReturn).
-       rho_0sta / rho_0dyn correct the steady-state bias caused by precursor
-       drift: rho_0 = beta - sum(CG_0), where CG_0 depends on transit times. */
+       Circulating-fuel reactivity treatment: this legacy model applies
+       Dulla-type instantaneous flow compensation via rho_0dyn = beta -
+       sum(CG_0dyn), where CG_0dyn is the steady-state precursor distribution
+       at the current core/loop transit times, so the bias correction tracks
+       the instantaneous flow fraction (applied while FF > minFlowFraction). This
+       differs from the segmented family: SegmentedMSR.Nuclear.PKE_T freezes
+       its residual trim compensation (rhoTrim) once at initialization and
+       holds it constant thereafter. */
     model mPKE
       //Parameter declaration
-      parameter Integer numGroups;
+      parameter Integer numGroups(min = 1);
       parameter SMD_MSR_Modelica.Units.DecayConstant lambda[numGroups];
       parameter SMD_MSR_Modelica.Units.DelayedNeutronFrac beta[numGroups];
       parameter SMD_MSR_Modelica.Units.NeutronGenerationTime LAMBDA;
-      parameter SMD_MSR_Modelica.Units.ResidentTime nomTauCore;
-      parameter SMD_MSR_Modelica.Units.ResidentTime nomTauLoop;
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore;
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop;
       parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation n_0;
       parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloor = 1e-9
       "Numerical floor for normalized neutron population during low-power solves";
@@ -1017,18 +1227,16 @@ package SMD_MSR_Modelica
       SMD_MSR_Modelica.Units.DelayedNeutronFrac sumBeta;
       SMD_MSR_Modelica.Units.DelayedNeutronFrac sumCG_0dyn;
       SMD_MSR_Modelica.Units.DelayedNeutronFrac rho_0dyn;
-      SMD_MSR_Modelica.Units.DelayedNeutronFrac rho_0sta;
       //SMD_MSR_Modelica.Units.DelayedNeutronFrac beta_eff;
-      SMD_MSR_Modelica.Units.ResidentTime varTauCore;
-      SMD_MSR_Modelica.Units.ResidentTime varTauLoop;
+      SMD_MSR_Modelica.Units.ResidenceTime varTauCore;
+      SMD_MSR_Modelica.Units.ResidenceTime varTauLoop;
       SMD_MSR_Modelica.Units.PrecursorConc CG[numGroups];
       SMD_MSR_Modelica.Units.PrecursorConc CG_0dyn[numGroups];
-      SMD_MSR_Modelica.Units.PrecursorConc CG_0sta[numGroups];
       SMD_MSR_Modelica.Units.PrecursorReturnRate CGReturn[numGroups];
       SMD_MSR_Modelica.Units.PrecursorDecayRate CGDecay[numGroups];
       SMD_MSR_Modelica.Units.Reactivity reactivity;
       SMD_MSR_Modelica.Units.Reactivity externalReactivityIn;
-      SMD_MSR_Modelica.Units.NomalizedNeutronEmissionRate nomS;
+      SMD_MSR_Modelica.Units.NormalizedNeutronEmissionRate nomS;
       SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloorActive;
       SMD_MSR_Modelica.Units.NominalNeutronPopulation nClamped;
       Real nDotRaw;
@@ -1043,6 +1251,31 @@ package SMD_MSR_Modelica
       input SMD_MSR_Modelica.PortsConnectors.RealIn ReactivityIn annotation(
         Placement(visible = true, transformation(origin = {-36, 40}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {-40, 20}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
     initial equation
+      /* Parameter validity: LAMBDA divides the prompt nDotRaw term and the
+         precursor production/return terms; nomTauCore divides the
+         varTauCore-scaled precursor terms below, so it must be strictly
+         positive; nomTauLoop drives delay and exp decay over the loop
+         transit, where a ZERO nominal loop time would return precursors
+         instantly and undecayed -- inconsistent with the minFlowFraction/MaxTau
+         contract that clamps transit times to MaxTau only at vanishing
+         flow. lambda[i] decays each group; the beta[i] fractions build
+         sumBeta -- elementwise nonnegativity plus a strictly positive SUM,
+         with zero single-group yield a valid limiting case -- min=0 Units
+         typing alone is not validation. */
+      assert(LAMBDA > 0,
+        "mPKE: neutron generation time LAMBDA must be > 0");
+      assert(nomTauCore > 0,
+        "mPKE: nominal core transit time nomTauCore must be > 0, it divides the precursor transport terms");
+      assert(nomTauLoop > 0,
+        "mPKE: nominal loop transit time nomTauLoop must be > 0, a zero loop delay would return precursors instantly and undecayed");
+      for i in 1:numGroups loop
+        assert(lambda[i] > 0,
+          "mPKE: precursor decay constant lambda element must be > 0");
+        assert(beta[i] >= 0,
+          "mPKE: delayed-neutron fraction beta element must be >= 0");
+      end for;
+      assert(sum(beta) > 0,
+        "mPKE: delayed-neutron fractions must have a strictly positive sum");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         n_population.n = max(n_0, nFloor);
         for i in 1:numGroups loop
@@ -1055,9 +1288,15 @@ package SMD_MSR_Modelica
         end for;
       end if;
     equation
+      // Flow-domain guard (runtime, not init-only): the transit-time terms
+      // below divide by this externally supplied signal, and a NEGATIVE value
+      // would silently select the MaxTau stagnation branch of the minFlowFraction
+      // comparison; reverse flow is unsupported.
+      assert(fuelFlowFrac.FF >= 0,
+        "mPKE: fuelFlowFrac.FF must be >= 0; reverse flow unsupported");
       // Core and loop transit times scale inversely with FF; clamped to MaxTau at zero flow.
-      varTauCore = if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.MinTau then nomTauCore/fuelFlowFrac.FF else SMD_MSR_Modelica.Constants.MaxTau;
-      varTauLoop = if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.MinTau then nomTauLoop/fuelFlowFrac.FF else SMD_MSR_Modelica.Constants.MaxTau;
+      varTauCore = if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.minFlowFraction then nomTauCore/fuelFlowFrac.FF else SMD_MSR_Modelica.Constants.MaxTau;
+      varTauLoop = if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.minFlowFraction then nomTauLoop/fuelFlowFrac.FF else SMD_MSR_Modelica.Constants.MaxTau;
       // nFloor is a numerical lower bound, distinct from the physical external source term nomS.
       nFloorActive = if time >= nFloorSwitchTime then nFloorDuringForcing else nFloor;
       nClamped = noEvent(max(n_population.n, nFloorActive));
@@ -1066,20 +1305,17 @@ package SMD_MSR_Modelica
       // Apply flow-dependent circulating-fuel compensation only when the core loop is flowing.
       // Use rho_0dyn (current FF) so the compensation tracks instantaneous flow reactivity loss.
       reactivity = feedback.rho + externalReactivityIn
-        + (if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.MinTau then rho_0dyn else 0);
+        + (if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.minFlowFraction then rho_0dyn else 0);
       sumBeta = sum(beta);
       sumCG_0dyn = sum(CG_0dyn);
       externalReactivityIn = ReactivityIn.R*1E-5;
       nomS = S.nDot/1.58E20;
-      rho_0sta = sumBeta - sum(CG_0sta);
       rho_0dyn = sumBeta - sumCG_0dyn;
       for i in 1:numGroups loop
         der(CG[i]) = (beta[i]*nClamped)/LAMBDA - CGDecay[i] - (CG[i]/varTauCore) + CGReturn[i];
         CGDecay[i] = lambda[i]*CG[i];
         // Precursors re-enter the core after one loop transit with radioactive decay applied.
         CGReturn[i] = (delay(CG[i], varTauLoop, SMD_MSR_Modelica.Constants.MaxTau)*exp(-lambda[i]*varTauLoop))/varTauCore;
-        // Static (nominal-FF) steady-state CG used for circulating-fuel bias correction.
-        CG_0sta[i] = beta[i]/(1 + (1/(lambda[i]*nomTauCore))*(1 - exp(-lambda[i]*nomTauLoop)));
         // Dynamic (current-FF) steady-state CG; used to track rho_0 at varying flow.
         CG_0dyn[i] = beta[i]/(1 + (1/(lambda[i]*varTauCore))*(1 - exp(-lambda[i]*varTauLoop)));
       end for;
@@ -1093,7 +1329,15 @@ package SMD_MSR_Modelica
 
     /* Lumped two-node fuel-salt + one-node graphite fuel channel (SMD library version).
        Uses the same 6th-order polynomial hA(FF) as the HeatExchanger (rather than
-       the FF^0.33 power law used in MSRR.Components.FuelChannel). */
+       the FF^0.33 power law used in MSRR.Components.FuelChannel).
+       Each fuel node's film convection is driven by that node's own temperature.
+       Fission-power split: kFN1/kFN2/kG divide the total fission source among fuel
+       node 1, fuel node 2, and the graphite node (fissPowFN1/fissPowFN2/fissPowGN).
+       The flat kG = 0.07 is the lumped dissertation assumption (93%/7% fuel/graphite
+       split). The nine-region models pass region-resolved shares instead,
+       kG[i] = kHT1[i] + kHT2[i], whose RAW total ~0.060769 is intentionally never
+       renormalized to the thesis 7% (see the qModChain9R provenance note and the
+       data-derived normalizer fSaltNormalizer9R in SegmentedMSR.Reactors). */
     model FuelChannel
       parameter SMD_MSR_Modelica.Units.Volume vol_FN1;
       parameter SMD_MSR_Modelica.Units.Volume vol_FN2;
@@ -1102,7 +1346,7 @@ package SMD_MSR_Modelica
       parameter SMD_MSR_Modelica.Units.Density rho_grap;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_fuel;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_grap;
-      parameter SMD_MSR_Modelica.Units.VolumeticFlowRate Vdot_fuelNom;
+      parameter SMD_MSR_Modelica.Units.VolumetricFlowRate Vdot_fuelNom;
       parameter SMD_MSR_Modelica.Units.VolumeImportance kFN1;
       parameter SMD_MSR_Modelica.Units.VolumeImportance kFN2;
       parameter SMD_MSR_Modelica.Units.VolumeImportance kG;
@@ -1144,7 +1388,7 @@ package SMD_MSR_Modelica
       SMD_MSR_Modelica.Units.Power fissPowGN;
       SMD_MSR_Modelica.Units.Power decayPowFN1;
       SMD_MSR_Modelica.Units.Power decayPowFN2;
-      input SMD_MSR_Modelica.PortsConnectors.VolumetircPowerIn decayHeat annotation(
+      input SMD_MSR_Modelica.PortsConnectors.VolumetricPowerIn decayHeat annotation(
         Placement(transformation(origin = {-80, 32}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-80, 30}, extent = {{-10, -10}, {10, 10}})));
       output SMD_MSR_Modelica.PortsConnectors.TempOut grapNode annotation(
         Placement(transformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}})));
@@ -1159,16 +1403,42 @@ package SMD_MSR_Modelica
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn fuelFlowFraction annotation(
         Placement(transformation(origin = {-80, 2}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-80, 0}, extent = {{-10, -10}, {10, 10}})));
     initial equation
-      if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
-        fuelNode1.T = TF1_0;
-        fuelNode2.T = TF2_0;
-        grapNode.T = TG_0;
-      else
-        der(fuelNode1.T) = 0;
-        der(fuelNode2.T) = 0;
-        der(grapNode.T) = 0;
-      end if;
+      /* Parameter validity: convPowFN1/convPowFN2 split the film convection
+         through kHT_FN1/(kHT_FN1 + kHT_FN2) and kHT_FN2/(kHT_FN1 + kHT_FN2).
+         A zero share on one node is a valid limiting case; the denominator
+         only requires a strictly positive sum of nonnegative shares. */
+       assert(kHT_FN1 >= 0 and kHT_FN2 >= 0 and kHT_FN1 + kHT_FN2 > 0,
+         "FuelChannel: heat-transfer shares must be nonnegative and not both zero");
+       // Remaining parameter validity: LF1/LF2 divide condPowFN1/condPowFN2; vol_* are
+       // the fuel/graphite inventories; rho_*/cP_* are density and heat capacity;
+       // Vdot_fuelNom is the nominal flow.
+       assert(LF1 > 0, "FuelChannel: LF1 must be > 0 (divides condPowFN1)");
+       assert(LF2 > 0, "FuelChannel: LF2 must be > 0 (divides condPowFN2)");
+       assert(vol_FN1 > 0, "FuelChannel: vol_FN1 must be > 0 (node-1 fuel inventory)");
+       assert(vol_FN2 > 0, "FuelChannel: vol_FN2 must be > 0 (node-2 fuel inventory)");
+       assert(vol_GN > 0, "FuelChannel: vol_GN must be > 0 (graphite inventory)");
+       assert(rho_fuel > 0, "FuelChannel: rho_fuel must be > 0 (fuel density)");
+       assert(rho_grap > 0, "FuelChannel: rho_grap must be > 0 (graphite density)");
+       assert(cP_fuel > 0, "FuelChannel: cP_fuel must be > 0 (fuel heat capacity)");
+       assert(cP_grap > 0, "FuelChannel: cP_grap must be > 0 (graphite heat capacity)");
+       assert(Vdot_fuelNom > 0, "FuelChannel: Vdot_fuelNom must be > 0 (nominal fuel flow)");
+       assert(not OuterRegion or (e >= 0 and e <= 1),
+         "FuelChannel: e must be in [0,1] when OuterRegion is true");
+       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
+         fuelNode1.T = TF1_0;
+         fuelNode2.T = TF2_0;
+         grapNode.T = TG_0;
+       else
+         der(fuelNode1.T) = 0;
+         der(fuelNode2.T) = 0;
+         der(grapNode.T) = 0;
+       end if;
     equation
+      // Flow-domain guard (runtime, not init-only): the sixth-order hA
+      // polynomial below is evaluated at this externally supplied signal;
+      // reverse flow is unsupported.
+      assert(fuelFlowFraction.FF >= 0,
+        "FuelChannel: fuelFlowFraction.FF must be >= 0; reverse flow unsupported");
       hA = hAnom*(0.8215*fuelFlowFraction.FF^6 - 4.108*fuelFlowFraction.FF^5 + 7.848*fuelFlowFraction.FF^4 - 7.165*fuelFlowFraction.FF^3 + 3.004*fuelFlowFraction.FF^2 + 0.5903*fuelFlowFraction.FF + 0.008537);
 //hA = (hAnom);
       //hA = hAnom*fuelFlowFraction.FF^(0.33);
@@ -1184,7 +1454,7 @@ package SMD_MSR_Modelica
       condPowFN1 = ((KF*Ac)/LF1)*(temp_In.T - fuelNode1.T);
       condPowFN2 = ((KF*Ac)/LF2)*(fuelNode1.T - fuelNode2.T);
       convPowFN1 = hA*(kHT_FN1/(kHT_FN1 + kHT_FN2))*(fuelNode1.T - grapNode.T);
-      convPowFN2 = hA*(kHT_FN2/(kHT_FN1 + kHT_FN2))*(fuelNode1.T - grapNode.T);
+      convPowFN2 = hA*(kHT_FN2/(kHT_FN1 + kHT_FN2))*(fuelNode2.T - grapNode.T);
       if OuterRegion == true then
         radPowFN1 = e*SMD_MSR_Modelica.Constants.SigSBK*ArF1*((Tinf + 273.15)^4 - (fuelNode1.T + 273.15)^4);
         radPowFN2 = e*SMD_MSR_Modelica.Constants.SigSBK*ArF2*((Tinf + 273.15)^4 - (fuelNode2.T + 273.15)^4);
@@ -1210,7 +1480,7 @@ package SMD_MSR_Modelica
        where DHYG[i] is the yield and DHlamG[i] is the decay constant.
        decayHeat_Out.DH = sum(DHG[i]) is the normalized total decay heat fraction. */
     model DecayHeat
-      parameter Integer numGroups = 3;
+      parameter Integer numGroups(min = 1) = 3;
       parameter SMD_MSR_Modelica.Units.DecayHeatYield DHYG[numGroups];
       parameter SMD_MSR_Modelica.Units.DecayConstant DHlamG[numGroups];
       SMD_MSR_Modelica.Units.HeatTransferFraction DHG[numGroups];
@@ -1222,6 +1492,25 @@ package SMD_MSR_Modelica
       for i in 1:numGroups loop
         der(DHG[i]) = 0;
       end for;
+      /* Review-2 finding 9: Constants.nomDecayHeatFrac stays a rounded literal
+         on purpose (three-group ANS-94 fit sums to ~0.0677414, rounded to 0.068;
+         NOT derived from the groups, NOT renormalized). These initialization
+         asserts keep whatever group set is bound honest against the constant.
+         Static assert messages: omc 1.27 rejects String() in model-scope asserts. */
+      assert(SMD_MSR_Modelica.Constants.nomDecayHeatFrac > 0 and SMD_MSR_Modelica.Constants.nomDecayHeatFrac < 1,
+        "DecayHeat: Constants.nomDecayHeatFrac must lie strictly between 0 and 1");
+      assert(min(DHlamG) > 0,
+        "DecayHeat: every DHlamG element must be > 0 (divisor of the group equilibrium sum)");
+      for i in 1:numGroups loop
+        assert(DHYG[i] >= 0,
+          "DecayHeat: every DHYG element must be >= 0");
+      end for;
+      /* Window written as a two-sided inequality, NOT abs(sum - constant): omc
+         1.27 mis-resolves abs(Real) to OpenModelica.Internal.intAbs inside
+         initial-equation asserts and rejects the model (probed directly). */
+      assert(sum(DHYG[i]/DHlamG[i] for i in 1:numGroups) > SMD_MSR_Modelica.Constants.nomDecayHeatFrac - 5e-4 and
+             sum(DHYG[i]/DHlamG[i] for i in 1:numGroups) < SMD_MSR_Modelica.Constants.nomDecayHeatFrac + 5e-4,
+        "DecayHeat: sum(DHYG[i]/DHlamG[i]) disagrees with Constants.nomDecayHeatFrac (accepted rounding window 5e-4)");
     equation
       for i in 1:numGroups loop
         der(DHG[i]) = nPop.n*DHYG[i] - DHlamG[i]*DHG[i];
@@ -1268,29 +1557,143 @@ package SMD_MSR_Modelica
         Icon(graphics = {Text(origin = {-40, 50}, extent = {{-16, 6}, {16, -6}}, textString = "F1"), Text(origin = {-8, 6}, extent = {{-32, 24}, {32, -24}}, textString = "TRFB"), Text(origin = {20, 50}, extent = {{-16, 6}, {16, -6}}, textString = "F2"), Rectangle(origin = {-10, 10}, lineColor = {11, 200, 36}, lineThickness = 1, extent = {{-50, 50}, {50, -50}}), Text(origin = {-10, 50}, extent = {{-16, 6}, {16, -6}}, textString = "G")}, coordinateSystem(extent = {{-60, 60}, {40, -40}})));
     end ReactivityFeedback;
 
+    /* Circulating-fuel poison chain: 135Te -> I -> Xe and 149Pm -> Sm.
+       Fission production and absorption are scaled by core residence fraction. */
     model Poisons
+      "Circulating-fuel fission-product poison chain (135Te-I-Xe, 149Pm-Sm).
+      Bateman balances: Methodology Eqs. N_Te..N_Sm; flux = phi0*nPop.n/n0.
+      Linearized worth about full-power SS (Eqs. Xe_0, delrho) for Xe-135
+      and Sm-149. poisonReactivity.rho is 0 unless enableFeedback=true;
+      then set physical Sig_fission, phi0, n0, nomTauCore, Sigma_a_Fuel,
+      sigma_a_Xe, sigma_a_Sm, parent lambdas, and at least one yield on
+      each chain (asserted). Connect nPop to mPKE n_population.
+      SteadyState Sm-149 init needs sigma_a_Sm > 0; otherwise use
+      FixedStart and *_Conc_0."
       parameter SMD_MSR_Modelica.Units.IsotopicDecayConstant Te135_lam = 1;
       parameter SMD_MSR_Modelica.Units.IsotopicDecayConstant I135_lam = 1;
       parameter SMD_MSR_Modelica.Units.IsotopicDecayConstant Xe135_lam = 1;
-      parameter SMD_MSR_Modelica.Units.IsotopicFissYield Pm149_lam = 1;
+      parameter SMD_MSR_Modelica.Units.IsotopicDecayConstant Pm149_lam = 1;
       parameter SMD_MSR_Modelica.Units.IsotopicDecayConstant Sm149_lam = 1;
+      parameter SMD_MSR_Modelica.Units.IsotopicDecayConstant Xe_lam_gas = 0
+        "Xe-135 degassing/removal rate lambda_gas";
       parameter SMD_MSR_Modelica.Units.IsotopicFissYield Te135_gamma = 1;
       parameter SMD_MSR_Modelica.Units.IsotopicFissYield I135_gamma = 1;
       parameter SMD_MSR_Modelica.Units.IsotopicFissYield Xe135_gamma = 1;
       parameter SMD_MSR_Modelica.Units.IsotopicFissYield Pm149_gamma = 1;
+      parameter SMD_MSR_Modelica.Units.IsotopicFissYield Sm149_gamma = 0;
+      parameter SMD_MSR_Modelica.Units.MacroscopicCrossSection Sig_fission = 0
+        "Macroscopic fission cross-section Sigma_F, consistent with phi0";
+      parameter SMD_MSR_Modelica.Units.CrossSection sigma_a_Xe = 0
+        "Xe-135 microscopic absorption cross-section";
+      parameter SMD_MSR_Modelica.Units.CrossSection sigma_a_Sm = 0
+        "Sm-149 microscopic absorption cross-section";
+      parameter SMD_MSR_Modelica.Units.MacroscopicCrossSection Sigma_a_Fuel = 0
+        "Total fuel macroscopic absorption cross-section (Eq. Xe_0)";
+      parameter SMD_MSR_Modelica.Units.NeutronFlux phi0 = 0
+        "Core-average neutron flux at full reactor power";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = 34.8025
+        "Nominal core fuel transit time used for coreFrac";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = 8.7006
+        "Nominal loop fuel transit time used for coreFrac";
+      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation n0 = 1
+        "Reference neutron population for phi = phi0 * nPop.n / n0";
+      parameter Boolean enableFeedback = false
+        "Enable reactivity output; false keeps poisonReactivity.rho hard-wired to 0";
+      parameter SMD_MSR_Modelica.Units.InitMode initMode = SMD_MSR_Modelica.Units.InitMode.SteadyState;
+      parameter SMD_MSR_Modelica.Units.IsotopicConc Te135_Conc_0 = 0
+        "FixedStart initial concentration";
+      parameter SMD_MSR_Modelica.Units.IsotopicConc I135_Conc_0 = 0
+        "FixedStart initial concentration";
+      parameter SMD_MSR_Modelica.Units.IsotopicConc Xe135_Conc_0 = 0
+        "FixedStart initial concentration";
+      parameter SMD_MSR_Modelica.Units.IsotopicConc Pm149_Conc_0 = 0
+        "FixedStart initial concentration";
+      parameter SMD_MSR_Modelica.Units.IsotopicConc Sm149_Conc_0 = 0
+        "FixedStart initial concentration";
+      input SMD_MSR_Modelica.PortsConnectors.NomNeutronPopIn nPop annotation(
+        Placement(transformation(origin = {-40, 0}, extent = {{-10, -10}, {10, 10}})));
       SMD_MSR_Modelica.Units.IsotopicConc Te135_Conc;
       SMD_MSR_Modelica.Units.IsotopicConc I135_Conc;
       SMD_MSR_Modelica.Units.IsotopicConc Xe135_Conc;
-      SMD_MSR_Modleica.Units.IsotopicConc Pm149_Conc;
+      SMD_MSR_Modelica.Units.IsotopicConc Pm149_Conc;
       SMD_MSR_Modelica.Units.IsotopicConc Sm149_Conc;
+      SMD_MSR_Modelica.Units.IsotopicConc Te135_Ref;
+      SMD_MSR_Modelica.Units.IsotopicConc I135_Ref;
+      SMD_MSR_Modelica.Units.IsotopicConc Xe135_Ref;
+      SMD_MSR_Modelica.Units.IsotopicConc Pm149_Ref;
+      SMD_MSR_Modelica.Units.IsotopicConc Sm149_Ref;
+      Real coreFrac;
+      Real lambdaXeEff;
+      Real lambdaSmEff;
+      SMD_MSR_Modelica.Units.NeutronFlux phi;
+      SMD_MSR_Modelica.Units.Reactivity rhoXe0;
+      SMD_MSR_Modelica.Units.Reactivity rhoSm0;
+      output SMD_MSR_Modelica.PortsConnectors.ReactivityOut poisonReactivity annotation(
+        Placement(transformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}})));
     initial equation
-
+      if initMode == SMD_MSR_Modelica.Units.InitMode.SteadyState then
+        der(Te135_Conc) = 0;
+        der(I135_Conc) = 0;
+        der(Xe135_Conc) = 0;
+        der(Pm149_Conc) = 0;
+        if sigma_a_Sm > 0 then
+          der(Sm149_Conc) = 0;
+        else
+          Sm149_Conc = Sm149_Conc_0;
+        end if;
+      else
+        Te135_Conc = Te135_Conc_0;
+        I135_Conc = I135_Conc_0;
+        Xe135_Conc = Xe135_Conc_0;
+        Pm149_Conc = Pm149_Conc_0;
+        Sm149_Conc = Sm149_Conc_0;
+      end if;
     equation
-      der(Te135_Conc) = Te135_gamma*Sig_fission*phi0;
+      assert(not enableFeedback or (Sig_fission > 0 and phi0 > 0 and n0 > 0 and nomTauCore > 0
+        and Sigma_a_Fuel > 0 and sigma_a_Xe > 0 and sigma_a_Sm > 0
+        and Te135_lam > 0 and I135_lam > 0 and Xe135_lam > 0 and Pm149_lam > 0
+        and (Te135_gamma + I135_gamma + Xe135_gamma) > 0
+        and (Pm149_gamma + Sm149_gamma) > 0),
+        "Poisons.enableFeedback=true requires physical Sig_fission, phi0, n0, nomTauCore, Sigma_a_Fuel, sigma_a_Xe, sigma_a_Sm, parent lambdas, and at least one yield on each chain");
+      coreFrac = nomTauCore/(nomTauCore + nomTauLoop);
+      phi = phi0*(nPop.n/n0);
+      lambdaXeEff = Xe135_lam + sigma_a_Xe*phi0*coreFrac + Xe_lam_gas;
+      lambdaSmEff = sigma_a_Sm*phi0*coreFrac;
+      // Structural if so the full-power divisions exist only when asserted physical.
+      if enableFeedback then
+        Te135_Ref = Te135_gamma*Sig_fission*phi0*coreFrac/Te135_lam;
+        I135_Ref = (I135_gamma*Sig_fission*phi0*coreFrac + Te135_lam*Te135_Ref)/I135_lam;
+        Xe135_Ref = (Xe135_gamma*Sig_fission*phi0*coreFrac + I135_lam*I135_Ref)/lambdaXeEff;
+        Pm149_Ref = Pm149_gamma*Sig_fission*phi0*coreFrac/Pm149_lam;
+        if sigma_a_Sm > 0 then
+          Sm149_Ref = (Sm149_gamma*Sig_fission*phi0*coreFrac + Pm149_lam*Pm149_Ref)/lambdaSmEff;
+        else
+          Sm149_Ref = 0;
+        end if;
+        rhoXe0 = -sigma_a_Xe*Xe135_Ref/Sigma_a_Fuel;
+        rhoSm0 = -sigma_a_Sm*Sm149_Ref/Sigma_a_Fuel;
+        // Eq. delrho as -sigma_a*(N - N_ref)/Sigma_a_Fuel so rho=0 at N=N_ref without a ratio clamp.
+        poisonReactivity.rho = (-sigma_a_Xe*(Xe135_Conc - Xe135_Ref) - sigma_a_Sm*(Sm149_Conc - Sm149_Ref))/Sigma_a_Fuel;
+      else
+        Te135_Ref = 0;
+        I135_Ref = 0;
+        Xe135_Ref = 0;
+        Pm149_Ref = 0;
+        Sm149_Ref = 0;
+        rhoXe0 = 0;
+        rhoSm0 = 0;
+        poisonReactivity.rho = 0;
+      end if;
+      der(Te135_Conc) = Te135_gamma*Sig_fission*phi*coreFrac - Te135_lam*Te135_Conc;
+      der(I135_Conc) = I135_gamma*Sig_fission*phi*coreFrac + Te135_lam*Te135_Conc - I135_lam*I135_Conc;
+      der(Xe135_Conc) = Xe135_gamma*Sig_fission*phi*coreFrac + I135_lam*I135_Conc - Xe135_lam*Xe135_Conc - sigma_a_Xe*phi*Xe135_Conc*coreFrac - Xe_lam_gas*Xe135_Conc;
+      der(Pm149_Conc) = Pm149_gamma*Sig_fission*phi*coreFrac - Pm149_lam*Pm149_Conc;
+      der(Sm149_Conc) = Sm149_gamma*Sig_fission*phi*coreFrac + Pm149_lam*Pm149_Conc - sigma_a_Sm*phi*Sm149_Conc*coreFrac;
     end Poisons;
 
     /* Converts normalized neutron population and decay heat groups to physical powers.
-       Fission power = n*(1 - 0.068)*P, where 0.068 is the total delayed/decay fraction.
+       Fission power = n*(1 - nomDecayHeatFrac)*P, where nomDecayHeatFrac is the total
+       delayed/decay fraction (Constants.nomDecayHeatFrac).
        Decay power per unit volume = decayNP.DH*P / TotalFuelVol, broadcast to all nodes. */
     model PowerBlock
       parameter SMD_MSR_Modelica.Units.Power P;
@@ -1305,11 +1708,15 @@ package SMD_MSR_Modelica
         Placement(transformation(origin = {40, -40}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {40, 0}, extent = {{-10, -10}, {10, 10}})));
       output SMD_MSR_Modelica.PortsConnectors.PowerOut fissionPower annotation(
         Placement(transformation(origin = {-60, 60}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {-20, -60}, extent = {{-10, -10}, {10, 10}})));
-      output SMD_MSR_Modelica.PortsConnectors.VolumetircPowerOut decayPowerM annotation(
+      output SMD_MSR_Modelica.PortsConnectors.VolumetricPowerOut decayPowerM annotation(
         Placement(transformation(origin = {40, 60}, extent = {{-10, -10}, {10, 10}}), iconTransformation(origin = {40, -60}, extent = {{-10, -10}, {10, 10}})));
     equation
-      // 0.068 = total recoverable decay-heat fraction; remainder is prompt fission power.
-      nomFissionPower = nPop.n*(1 - 0.068);
+      /* Parameter validity: TotalFuelVol converts decay heat into a
+         volumetric density below, so it must be strictly positive. */
+      assert(TotalFuelVol > 0,
+        "PowerBlock: TotalFuelVol must be > 0 (it divides the decay heat into a volumetric density)");
+      // nomDecayHeatFrac (Constants) = total recoverable decay-heat fraction; remainder is prompt fission power.
+      nomFissionPower = nPop.n*(1 - SMD_MSR_Modelica.Constants.nomDecayHeatFrac);
 //nomFissionPower = nPop.n;
       fissionPower.P = nomFissionPower*P;
       decayPower = decayNP.DH*P;
@@ -1325,7 +1732,7 @@ package SMD_MSR_Modelica
     /* Sums numInput individual region reactivity feedbacks (Delta k/k) into a
        single total feedback reactivity for input to PKE or mPKE. */
     model SumReactivity
-      parameter Integer numInput;
+      parameter Integer numInput(min = 1);
       input SMD_MSR_Modelica.PortsConnectors.ReactivityIn reactivityIn[numInput] annotation(
         Placement(visible = true, transformation(origin = {20, 20}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {8, 20}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
       output SMD_MSR_Modelica.PortsConnectors.ReactivityOut reactivityOut annotation(
@@ -1345,8 +1752,9 @@ package SMD_MSR_Modelica
     type Amount = Real(unit = "mol", min = 0);
     type AngularFrequency = Real(unit = "rad/s");
     type AtomicDensity = Real(unit = "1/m3", min = 0);
-    type AvagadroNumber = Real(unit = "1/mol");
+    type AvogadroNumber = Real(unit = "1/mol");
     type CrossSection = Real(unit = "m2", min = 0);
+    type MacroscopicCrossSection = Real(unit = "1/m", min = 0);
     type Current = Real(unit = "A");
     type Conductivity = Real(unit = "W/(m.C)", min = 0);
     type Convection = Real(unit = "J/(s.C)", min = 0);
@@ -1369,7 +1777,7 @@ package SMD_MSR_Modelica
     type FlowFraction = Real(unit = "1", min = 0);
     type HeatTransferFraction = Real(unit = "1", min = -1e-8);
     type HeatCapacity = Real(unit = "J/C");
-    type IsotopicConc = Real(unit = "1/m^3", min = 0);
+    type IsotopicConc = Real(unit = "1/m3", min = 0);
     type IsotopicDecayConstant = Real(unit = "1/s", min = 0);
     type IsotopicFissYield = Real(unit = "1", min = 0);
     type InitiationTime = Real(unit = "s", min = 0);
@@ -1378,11 +1786,11 @@ package SMD_MSR_Modelica
     type Mass = Real(unit = "kg", min = 0);
     type MolarMass = Real(unit = "kg/mol", min = 0);
     type MoleFraction = Real(unit = "1", min = 0);
-    type MultipicationFactor = Real(unit = "1", min = 0);
+    type MultiplicationFactor = Real(unit = "1", min = 0);
     type NeutronDensity = Real(unit = "1/m3", min = 0);
     type NeutronPopulation = Real(unit = "1", min = 0);
     type NeutronEmissionRate = Real(unit = "1/s", min = 0);
-    type NomalizedNeutronEmissionRate = Real(unit = "1/s", min = 0);
+    type NormalizedNeutronEmissionRate = Real(unit = "1/s", min = 0);
     type NeutronGenerationTime = Real(unit = "s", min = 0);
     type NeutronFlux = Real(unit = "n/(cm2.s)");
     type NominalPower = Real(unit = "1", min = -1e-8);
@@ -1393,18 +1801,18 @@ package SMD_MSR_Modelica
     type PumpConstant = Real(unit = "1/s", min = 0);
     type Power = Real(unit = "W");
     type Reactivity = Real(unit = "1");
-    type ResidentTime = Real(unit = "s", min = 0, max = 1E6);
+    type ResidenceTime = Real(unit = "s", min = 0, max = 1E10);
     type Speed = Real(unit = "m/s", min = 0);
     type StefanBoltzmannConstant = Real(unit = "W/(m2.K4)");
     type SpecificHeatCapacity = Real(unit = "J/(kg.C)", min = 0);
     type TemperatureReactivityCoef = Real(unit = "1/C");
     type Temperature = Real(unit = "C");
-    type TimeConstant = Real(unit = "1/s", min = 0);
+    type TimeConstant = Real(unit = "s", min = 0);
     type Volume = Real(unit = "m3", min = 0);
-    type VolumeticFlowRate = Real(unit = "m3/s", min = 0);
+    type VolumetricFlowRate = Real(unit = "m3/s", min = 0);
     type Velocity = Real(unit = "m/s");
     type VolumeImportance = Real(unit = "1", min = 0);
-    type VolumetircPower = Real(unit = "W/m3");
+    type VolumetricPower = Real(unit = "W/m3");
   end Units;
 
   package PortsConnectors
@@ -1520,19 +1928,19 @@ package SMD_MSR_Modelica
         Icon(graphics = {Ellipse(origin = {-1, -1}, lineColor = {129, 61, 156}, fillColor = {129, 61, 156}, lineThickness = 1, extent = {{-51, 47}, {51, -47}})}, coordinateSystem(extent = {{-100, -100}, {100, 100}})));
     end PowerOut;
 
-    connector VolumetircPowerIn
-      SMD_MSR_Modelica.Units.VolumetircPower Q;
+    connector VolumetricPowerIn
+      SMD_MSR_Modelica.Units.VolumetricPower Q;
       annotation(
         Diagram(graphics = {Ellipse(origin = {1, -1}, lineColor = {220, 138, 221}, fillColor = {220, 138, 221}, fillPattern = FillPattern.Solid, lineThickness = 0.5, extent = {{-51, 47}, {51, -47}})}, coordinateSystem(extent = {{-100, -100}, {100, 100}})),
         Icon(graphics = {Ellipse(origin = {1, -1}, lineColor = {220, 138, 221}, fillColor = {220, 138, 221}, fillPattern = FillPattern.Solid, lineThickness = 0.5, extent = {{-51, 47}, {51, -47}})}, coordinateSystem(extent = {{-100, -100}, {100, 100}})));
-    end VolumetircPowerIn;
+    end VolumetricPowerIn;
 
-    connector VolumetircPowerOut
-      SMD_MSR_Modelica.Units.VolumetircPower Q;
+    connector VolumetricPowerOut
+      SMD_MSR_Modelica.Units.VolumetricPower Q;
       annotation(
         Icon(graphics = {Ellipse(origin = {1, -1}, lineColor = {220, 138, 221}, fillColor = {0, 225, 255}, lineThickness = 1, extent = {{-51, 47}, {51, -47}})}, coordinateSystem(extent = {{-100, -100}, {100, 100}})),
         Diagram(graphics = {Ellipse(origin = {1, -1}, lineColor = {220, 138, 221}, fillColor = {0, 225, 255}, lineThickness = 1, extent = {{-51, 47}, {51, -47}})}, coordinateSystem(extent = {{-60, 60}, {60, -60}})));
-    end VolumetircPowerOut;
+    end VolumetricPowerOut;
 
     connector HeatPortIn
       SMD_MSR_Modelica.Units.Temperature T;
@@ -2003,11 +2411,11 @@ package SMD_MSR_Modelica
 
     package TestRTMS
   model test1
-  HeatTransport.RTMS rtms(Cp2 = 300)  annotation(
+  HeatTransport.RTMSlayer rtms(Cp2 = 300)  annotation(
           Placement(transformation(origin = {-31.8333, -28.2}, extent = {{-31.8333, -38.2}, {31.8333, 38.2}})));
   Signals.Constants.ConstantReal constantReal(magnitude = 100)  annotation(
           Placement(transformation(origin = {-153, -59}, extent = {{-9, -9}, {9, 9}})));
-  Signals.Constants.ConstantTempIn constantTempIn annotation(
+   Signals.Constants.ConstantTempIn constantTempIn(TestTempIn = 25) annotation(
           Placement(transformation(origin = {49, -35}, extent = {{-15, -15}, {15, 15}})));
       equation
   connect(constantReal.realOut, rtms.heaterPower) annotation(
@@ -2038,7 +2446,7 @@ package SMD_MSR_Modelica
          (amplitude[i] - amplitude[i-1]); the output is the running total.
          Use to drive reactivity insertions, UHX demand changes, etc. */
       model Stepper
-        parameter Integer numSteps;
+        parameter Integer numSteps(min = 1);
         parameter SMD_MSR_Modelica.Units.InitiationTime stepTime[numSteps];
         parameter Real amplitude[numSteps];
         Real amp[numSteps];
@@ -2086,7 +2494,7 @@ package SMD_MSR_Modelica
          Each segment adds a rate increment at rampTime[i]; output is clamped
          to maxValue. Used for gradual pump ramp-up or load-following profiles. */
       model Ramper
-        parameter Integer numRamps;
+        parameter Integer numRamps(min = 1);
         parameter SMD_MSR_Modelica.Units.InitiationTime rampTime[numRamps];
         parameter Real rate[numRamps];
         parameter Real offset;
@@ -2117,7 +2525,7 @@ package SMD_MSR_Modelica
 
     package Operations
       model SumSignals
-        parameter Integer numInput;
+        parameter Integer numInput(min = 1);
         input SMD_MSR_Modelica.PortsConnectors.RealIn realIn[numInput] annotation(
           Placement(visible = true, transformation(origin = {20, 20}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {20, 20}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
         output SMD_MSR_Modelica.PortsConnectors.RealOut realOut annotation(
@@ -2132,8 +2540,7 @@ package SMD_MSR_Modelica
 
     package Constants
       model NeutronPopulation
-        parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation relNpop;
-        output SMD_MSR_Modelica.PortsConnectors.NominalNeutronPopulation n_population annotation(
+        output SMD_MSR_Modelica.PortsConnectors.NomNeutronPopOut n_population annotation(
           Placement(visible = true, transformation(origin = {-1, 29}, extent = {{-29, -29}, {29, 29}}, rotation = 0), iconTransformation(origin = {4, 38}, extent = {{-28, -28}, {28, 28}}, rotation = 0)));
       initial equation
         n_population.n = 0.999;
@@ -2189,8 +2596,8 @@ package SMD_MSR_Modelica
       end ConstantFlowFrac;
 
       model ConstantVolumetricPower
-        parameter SMD_MSR_Modelica.Units.VolumetircPower Q_volumetric;
-        output SMD_MSR_Modelica.PortsConnectors.VolumetircPowerOut volPow annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricPower Q_volumetric;
+        output SMD_MSR_Modelica.PortsConnectors.VolumetricPowerOut volPow annotation(
           Placement(visible = true, transformation(origin = {-4, 36}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {-4, 36}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
       equation
         volPow.Q = Q_volumetric;
@@ -2203,7 +2610,7 @@ package SMD_MSR_Modelica
         parameter SMD_MSR_Modelica.Units.Volume vol;
         parameter SMD_MSR_Modelica.Units.Density rho;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate V_dotNom;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate V_dotNom;
         parameter SMD_MSR_Modelica.Units.Power powPr;
         SMD_MSR_Modelica.Units.Mass m;
         SMD_MSR_Modelica.Units.MassFlowRate mDot;
@@ -2226,7 +2633,7 @@ package SMD_MSR_Modelica
         parameter SMD_MSR_Modelica.Units.Volume vol;
         parameter SMD_MSR_Modelica.Units.Density rho;
         parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP;
-        parameter SMD_MSR_Modelica.Units.VolumeticFlowRate V_dotNom;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate V_dotNom;
         parameter SMD_MSR_Modelica.Units.Power powRm;
         SMD_MSR_Modelica.Units.Mass m;
         SMD_MSR_Modelica.Units.MassFlowRate mDot;
@@ -2286,8 +2693,20 @@ package SMD_MSR_Modelica
     final constant Real SigSBK = 5.670374419E-8;
     //Stefan-Boltzmann constant W/(m2K4)
     final constant Real Large = 1E6;
-    //Just a referance large number to solve singularity issues
-    final constant SMD_MSR_Modelica.Units.ResidentTime MaxTau = 1E10;
-    final constant SMD_MSR_Modelica.Units.ResidentTime MinTau = 1E-6;
+    //Just a reference large number to solve singularity issues
+    final constant SMD_MSR_Modelica.Units.ResidenceTime MaxTau = 1E10;
+    final constant SMD_MSR_Modelica.Units.ResidenceTime MinTau = 1E-6;
+    // Typed minimum-flow threshold gating flow-fraction comparisons; same
+    // 1e-6 numeric as MinTau. MinTau stays declared because the byte-frozen
+    // Verify/QA twins still reference it.
+    final constant SMD_MSR_Modelica.Units.FlowFraction minFlowFraction = 1e-6;
+
+    // Equilibrium decay-heat fraction of nominal power carried by the delayed/decay
+    // groups; prompt fission carries the remaining 93.2%. Dissertation provenance:
+    // the three-group ANS-94 decay fit gives sum(DHYG./DHlamG) = 0.0677414, rounded
+    // to 0.068 for the model (the ~0.03%-of-nominal difference vs the fit value is
+    // accepted). Stored as a rounded literal on purpose - NOT derived from the
+    // decay-group parameters, and NOT renormalized.
+    final constant Real nomDecayHeatFrac = 0.068;
   end Constants;
 end SMD_MSR_Modelica;

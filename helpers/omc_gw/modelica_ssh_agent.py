@@ -44,6 +44,11 @@ except ImportError:  # pragma: no cover - supports direct script execution
 DEFAULT_MAX_TASKS_PER_WORKER = 32
 DEFAULT_JOBS_ROOT = "~/.modelica_ssh/jobs"
 TERMINAL_STATES = {"COMPLETED", "FAILED", "CANCELED", "SUBMIT_FAILED"}
+# A RUNNING job whose heartbeat is older than this is treated as orphaned
+# (worker rebooted or the launcher died before start). 0 disables reaping.
+DEFAULT_STALE_HEARTBEAT_SECONDS = 1800.0
+STALE_HEARTBEAT_ENV_VAR = "MODELICA_SSH_STALE_HEARTBEAT_SECONDS"
+HEARTBEAT_PERIOD_SECONDS = 60
 
 
 def _utc_now_iso() -> str:
@@ -59,9 +64,11 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write a JSON object to *path* with stable formatting."""
+    """Write a JSON object to *path* atomically with stable formatting."""
 
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 def _emit_json(payload: dict[str, Any], *, stream: Any = sys.stdout) -> None:
@@ -98,6 +105,61 @@ def _optional_int(path: Path) -> int | None:
         return None
 
 
+def _stale_heartbeat_seconds() -> float:
+    """Return the stale-heartbeat threshold; <= 0 disables orphan reaping."""
+
+    raw = os.environ.get(STALE_HEARTBEAT_ENV_VAR)
+    if raw is None or raw.strip() == "":
+        return DEFAULT_STALE_HEARTBEAT_SECONDS
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_STALE_HEARTBEAT_SECONDS
+
+
+def _heartbeat_age_seconds(job_directory: Path) -> float | None:
+    """Return seconds since the last sign of life for *job_directory*.
+
+    Prefers the worker-side ``heartbeat`` file mtime. When the job never wrote
+    a heartbeat (remote launch never started), falls back to the submission
+    timestamp from ``meta.json``. Returns ``None`` when neither is available.
+    """
+
+    heartbeat_path = job_directory / "heartbeat"
+    if heartbeat_path.exists():
+        try:
+            return max(0.0, time.time() - heartbeat_path.stat().st_mtime)
+        except OSError:
+            return None
+
+    meta_path = job_directory / "meta.json"
+    if not meta_path.exists():
+        return None
+    try:
+        submitted = _read_json(meta_path).get("submitted_at")
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not submitted:
+        return None
+    try:
+        submitted_ts = datetime.fromisoformat(str(submitted).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0.0, time.time() - submitted_ts.timestamp())
+
+
+def _mark_orphaned(job_directory: Path) -> None:
+    """Record the orphan reaping decision once for *job_directory*."""
+
+    marker = job_directory / "orphaned_at"
+    if marker.exists():
+        return
+    try:
+        marker.write_text(_utc_now_iso() + "\n", encoding="utf-8")
+    except OSError:  # noqa: BLE001 - best-effort bookkeeping on shared FS
+        pass
+
+
 def _compute_state(job_directory: Path) -> tuple[str, int | None]:
     """Infer job state and exit code from the tracked files in *job_directory*."""
 
@@ -110,9 +172,19 @@ def _compute_state(job_directory: Path) -> tuple[str, int | None]:
 
     meta_path = job_directory / "meta.json"
     if meta_path.exists():
-        meta = _read_json(meta_path)
+        try:
+            meta = _read_json(meta_path)
+        except json.JSONDecodeError:
+            meta = {}
         if meta.get("state") == "SUBMIT_FAILED":
             return "SUBMIT_FAILED", None
+
+    stale_seconds = _stale_heartbeat_seconds()
+    if stale_seconds > 0:
+        age = _heartbeat_age_seconds(job_directory)
+        if age is not None and age > stale_seconds:
+            _mark_orphaned(job_directory)
+            return "FAILED", None
 
     return "RUNNING", None
 
@@ -269,6 +341,7 @@ STDERR_FILE={shlex.quote(str(job_directory / "stderr.log"))}
 EXIT_FILE={shlex.quote(str(job_directory / "exit_code"))}
 START_FILE={shlex.quote(str(job_directory / "started_at"))}
 END_FILE={shlex.quote(str(job_directory / "finished_at"))}
+HEARTBEAT_FILE={shlex.quote(str(job_directory / "heartbeat"))}
 CMD={shlex.quote(command)}
 TASKS={tasks}
 
@@ -276,6 +349,17 @@ umask 077
 date -Is > "$START_FILE"
 echo "${{HOSTNAME:-unknown}}" > "$JOB_DIR/hostname"
 echo "$TASKS" > "$JOB_DIR/tasks_used"
+
+# Touch a heartbeat file periodically so the agent can detect jobs whose
+# worker died (reboot, lost nohup) instead of reserving their slots forever.
+(
+  while :; do
+    sleep {HEARTBEAT_PERIOD_SECONDS}
+    touch "$HEARTBEAT_FILE" 2>/dev/null || exit
+  done
+) &
+HEARTBEAT_PID=$!
+trap 'kill "$HEARTBEAT_PID" 2>/dev/null' EXIT
 
 # Default to one threaded math/runtime libraries so reserved task slots are not
 # silently oversubscribed by nested BLAS/OpenMP threading.
@@ -287,6 +371,7 @@ export NUMEXPR_NUM_THREADS="${{NUMEXPR_NUM_THREADS:-1}}"
 export VECLIB_MAXIMUM_THREADS="${{VECLIB_MAXIMUM_THREADS:-1}}"
 export BLIS_NUM_THREADS="${{BLIS_NUM_THREADS:-1}}"
 
+mkdir -p -- "$WORKDIR" 2>/dev/null || true
 cd "$WORKDIR" || {{
   echo "Failed to cd to $WORKDIR" > "$STDERR_FILE"
   echo 200 > "$EXIT_FILE"
@@ -332,7 +417,10 @@ def _load_job_view(jobs_root: Path, job_id: str) -> dict[str, Any]:
     meta_path = job_directory / "meta.json"
     if not meta_path.exists():
         raise FileNotFoundError(f"Unknown job_id: {job_id}")
-    meta = _read_json(meta_path)
+    try:
+        meta = _read_json(meta_path)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Corrupt metadata for job {job_id}: {exc}") from exc
 
     state, exit_code = _compute_state(job_directory)
     stdout_path = job_directory / "stdout.log"
@@ -343,6 +431,7 @@ def _load_job_view(jobs_root: Path, job_id: str) -> dict[str, Any]:
     view["exit_code"] = exit_code
     view["started_at"] = _optional_text(job_directory / "started_at")
     view["finished_at"] = _optional_text(job_directory / "finished_at")
+    view["orphaned_at"] = _optional_text(job_directory / "orphaned_at")
     view["hostname"] = _optional_text(job_directory / "hostname")
     view["stdout_path"] = str(stdout_path)
     view["stderr_path"] = str(stderr_path)

@@ -274,6 +274,10 @@ def main() -> int:
     handles_r, labels_r = ax_source.get_legend_handles_labels()
     axes[2].legend(handles_l + handles_r, labels_l + labels_r, loc="best")
 
+    t_end_h = float(time_h.max())
+    for axis in axes:
+        axis.set_xlim(0.0, t_end_h)
+
     fig.suptitle(args.title)
     axes[-1].set_xlabel("Time [h]")
     fig.tight_layout(rect=[0, 0, 1, 0.97])
