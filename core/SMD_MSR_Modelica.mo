@@ -243,16 +243,19 @@ package SMD_MSR_Modelica
       decayPowPN2 = P_decay.Q*volPN;
       decayPowPN3 = P_decay.Q*volPN;
       decayPowPN4 = P_decay.Q*volPN;
-      powPN1 = flowPowPN1 + condPowPN1 - convPowPN1 + radPowPN1 + decayPowPN1;
-      powPN2 = flowPowPN2 + condPowPN2 - convPowPN2 + radPowPN2 + decayPowPN2;
-      powPN3 = flowPowPN3 + condPowPN3 - convPowPN3 + radPowPN3 + decayPowPN3;
+      // Axial conduction is inflow-minus-outflow (matching FuelChannel/Pipe):
+      // each node also subtracts the heat it conducts to the next node
+      // downstream, so interior conduction faces create no net energy.
+      powPN1 = flowPowPN1 + condPowPN1 - condPowPN2 - convPowPN1 + radPowPN1 + decayPowPN1;
+      powPN2 = flowPowPN2 + condPowPN2 - condPowPN3 - convPowPN2 + radPowPN2 + decayPowPN2;
+      powPN3 = flowPowPN3 + condPowPN3 - condPowPN4 - convPowPN3 + radPowPN3 + decayPowPN3;
       powPN4 = flowPowPN4 + condPowPN4 - convPowPN4 + radPowPN4 + decayPowPN4;
       powTN1 = convPowPN1 + convPowPN2 - convPowSN3 - convPowSN4;
       powTN2 = convPowPN3 + convPowPN4 - convPowSN1 - convPowSN2;
-      powSN1 = flowPowSN1 + convPowSN1;
-      powSN2 = flowPowSN2 + convPowSN2;
-      powSN3 = flowPowSN3 + convPowSN3;
-      powSN4 = flowPowSN4 + convPowSN4;
+      powSN1 = flowPowSN1 + condPowSN1 - condPowSN2 + convPowSN1;
+      powSN2 = flowPowSN2 + condPowSN2 - condPowSN3 + convPowSN2;
+      powSN3 = flowPowSN3 + condPowSN3 - condPowSN4 + convPowSN3;
+      powSN4 = flowPowSN4 + condPowSN4 + convPowSN4;
     end HeatExchanger;
 
     /* Air-cooled single-node radiator (primary fluid node + air node).
@@ -480,18 +483,22 @@ package SMD_MSR_Modelica
       // powCondIn/Out; vol/rho/cP are the node mass and thermal capacity;
       // volFracNode splits the mass. A zero/negative value on any of these either
       // singularizes a denominator or empties the thermal inventory.
-      // The closed interval [0,1] is intentional: 0 is a pure-delay pipe
-      // (mixed-node mass vanishes); 1 is a well-mixed pipe with no delay
-      // section (tauPiDelay = 0). Both are degenerate limiting models, not
-      // errors. Negative and >1 remain invalid.
+      // volFracNode interval is the half-open (0,1] (rev021-A4,
+      // TASK-20260920-01 P9): 1 is a well-mixed pipe with no delay section
+      // (tauPiDelay = 0), a valid degenerate limiting model; 0 is NOT - it
+      // zeroes mPiRep so powPi = 0 and the energy balance degenerates into an
+      // algebraic constraint while conduction/radiation/decay remain live
+      // (not the pure-delay pipe the former [0,1] comment claimed) and the
+      // FixedStart tempPi = T_0 initialization conflicts with it. Negative
+      // and >1 remain invalid.
       assert(vDotNom > 0, "Pipe: vDotNom must be > 0 (divides tauPiDelay)");
       // omc 1.27 evaluation-order caveat: at exact-zero vDotNom initialization aborts on the GENERATED division guard for tauPiDelay (= mPiDelay/(2*mDotNom), parameter-expressible) BEFORE these initial-equation asserts evaluate - only negative vDotNom dies on the custom message above.
       assert(rho > 0, "Pipe: rho must be > 0 (density, mass and mDotNom)");
       assert(vol > 0, "Pipe: vol must be > 0 (fluid inventory)");
       assert(cP > 0, "Pipe: cP must be > 0 (specific heat capacity)");
       assert(L > 0, "Pipe: L must be > 0 (divides powCondIn/Out)");
-      assert(volFracNode >= 0 and volFracNode <= 1,
-        "Pipe: volFracNode must be in [0,1] (mass split fraction)");
+      assert(volFracNode > 0 and volFracNode <= 1,
+        "Pipe: volFracNode must be in (0,1] (mass split fraction; 0 empties the mixed node and turns the energy balance algebraic - not a pure-delay pipe)");
       assert(not EnableRad or (e >= 0 and e <= 1),
         "Pipe: e must be in [0,1] when EnableRad is true");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
@@ -543,7 +550,12 @@ package SMD_MSR_Modelica
         "PrimaryPump: freeConvectionFF must be in [0,1] (natural-circulation flow fraction)");
       primaryFlowFrac.FF = 1;
     equation
-      primaryFlowFrac.FF = (1 - freeConvectionFF)*exp(-(1/primaryPumpK)*delay(time, tripPrimaryPump)) + freeConvectionFF;
+      // Time since trip, in closed form. delay(time, ...) appends one never-trimmed
+      // history entry per communication point and overflows OMC's ring buffer on long
+      // runs (root cause in 00runs/paper-rerun-review-2026-09/metadata/excluded_powers.json).
+      // Identical to the delay form ONLY for startTime = 0; enforced: the startup
+      // runner rejects any nonzero --start_time for every package.
+      primaryFlowFrac.FF = (1 - freeConvectionFF)*exp(-(1/primaryPumpK)*noEvent(max(0, time - tripPrimaryPump))) + freeConvectionFF;
       annotation(
         Diagram(graphics = {Rectangle(lineColor = {245, 121, 0}, lineThickness = 1, extent = {{-60, 60}, {60, -60}}), Text(origin = {2, 6}, extent = {{-42, 16}, {42, -16}}, textString = "Primary Pump")}),
         Icon(graphics = {Rectangle(origin = {0, -20}, lineColor = {245, 121, 0}, lineThickness = 1, extent = {{-60, 60}, {60, -60}}), Text(origin = {4, -20}, extent = {{-42, 16}, {42, -16}}, textString = "Primary Pump")}));
@@ -687,9 +699,12 @@ package SMD_MSR_Modelica
     end MixingPot;
 
     /* Flow distributor: splits a single pump FF signal to numOutput regions,
-       each with an optional per-region trip. After a region trip the local FF
-       undergoes exponential coast-down toward freeConvectionFF with decay
-       constant coastDownK (independent of pump FF). */
+       each with an optional per-region trip. Before any region trip the pump
+       FF passes through unchanged (each outlet equals the inlet, so the
+       regions see the same FF as mpke.fuelFlowFrac). After a region trip the
+       local excess above freeConvectionFF decays exponentially toward
+       freeConvectionFF with decay constant coastDownK (independent of pump
+       FF); the outlet stays between freeConvectionFF and the inlet FF. */
     model FlowDistributor
       parameter Integer numOutput(min = 1);
       parameter SMD_MSR_Modelica.Units.FlowFraction freeConvectionFF;
@@ -710,8 +725,24 @@ package SMD_MSR_Modelica
       // into per-region outputs; reverse flow is unsupported.
       assert(flowFracIn.FF >= 0,
         "FlowDistributor: flowFracIn.FF must be >= 0; reverse flow unsupported");
+      // Defense-in-depth for the excess-above-floor convention below: the
+      // (inlet - freeConvectionFF) excess form assumes the inlet never drops
+      // below the floor. Every shipped vehicle wires the inlet to a pump
+      // outlet (which floors at its own freeConvFF) with both floors bound
+      // to MSRR_PlantData.Pumps.freeConvFF, so no shipped configuration can
+      // trip this; only an inconsistent -override decoupling the two floors
+      // (or a foreign driver below the floor) trips it.
+      assert(flowFracIn.FF >= freeConvectionFF,
+        "FlowDistributor: flowFracIn.FF must be >= freeConvectionFF; inlet below the natural-circulation floor");
       for i in 1:numOutput loop
-        flowFracOut[i].FF = (flowFracIn.FF*(1 - freeConvectionFF)*exp(-coastDownK*delay(time, regionTripTime[i], regionTripTime[i]))) + freeConvectionFF;
+        // Time since region trip; closed form, see PrimaryPump (identical to
+        // the delay form ONLY for startTime = 0; the startup runner rejects
+        // any nonzero --start_time).
+        // Pre-trip (time <= regionTripTime[i]) the inlet FF passes through
+        // unchanged: the (inlet - freeConvectionFF) excess is multiplied by
+        // exp(0) = 1. Post-trip the excess decays toward freeConvectionFF,
+        // the same excess-above-floor convention as the Pump trip coast-down.
+        flowFracOut[i].FF = (flowFracIn.FF - freeConvectionFF)*exp(-coastDownK*noEvent(max(0, time - regionTripTime[i]))) + freeConvectionFF;
       end for;
       annotation(
         Diagram(graphics = {Rectangle(origin = {0, -30}, lineColor = {230, 97, 0}, lineThickness = 1.5, extent = {{-60, 30}, {60, -30}}), Text(origin = {16, -16}, extent = {{-42, 16}, {42, -16}}, textString = "FlowDistributor")}, coordinateSystem(extent = {{-60, 20}, {60, -60}})),
@@ -731,6 +762,8 @@ package SMD_MSR_Modelica
       parameter SMD_MSR_Modelica.Units.ResidenceTime tripK;
       parameter SMD_MSR_Modelica.Units.InitiationTime tripTime;
       parameter SMD_MSR_Modelica.Units.FlowFraction freeConvFF;
+      parameter Boolean startRamped = false
+        "True: ramp stages scheduled at or before t = 0 are COMPLETE at t = 0, so the loop starts at its commanded flow (steady-state trims, flow-case transients); false: every stage follows its sigmoid from its rampUpTime (a stage at t = 0 then starts at freeConvFF + epsilon*(rampUpTo - freeConvFF)). Runtime-overridable (no Evaluate), unlike the SegmentedMSR copy, because the legacy runners select it with -override";
       constant Real epsilon = 1E-4;
       SMD_MSR_Modelica.Units.FlowFraction rampUp[numRampUp];
       SMD_MSR_Modelica.Units.FlowFraction rampDown;
@@ -742,19 +775,26 @@ package SMD_MSR_Modelica
       // the 1/tripK and /rampUpK[i] terms.
       assert(tripK > 0, "Pump: tripK must be > 0 (trip coast-down time constant divisor)");
       assert(min(rampUpK) > 0, "Pump: rampUpK elements must be > 0 (sigmoid ramp time constant divisor)");
+      assert(time >= -1e-12 and time <= 1e-12,
+        "Pump: closed-form trip/ramp uses time as elapsed time from 0; simulate with startTime=0");
  // primaryFlowFrac.FF = 0;
     equation
       // Each rampUp[i] is a sigmoid increment toward its target FF; stages are additive.
+      // startRamped (physics review 2026-09-27): a stage scheduled at t = 0
+      // otherwise starts at FF(0) = freeConvFF + epsilon*(rampUpTo - freeConvFF),
+      // so a SteadyState initial equation is solved at that reduced flow.
       for i in 1:numRampUp loop
         if i == 1 then
-          rampUp[i] = (rampUpTo[i] - freeConvFF)/(1 + exp(log(1/epsilon - 1)*(1 - (delay(time, rampUpTime[i], rampUpTime[i]))/rampUpK[i])));
+          rampUp[i] = (rampUpTo[i] - freeConvFF)*(if startRamped and rampUpTime[i] <= 0 then 1
+            else 1/(1 + exp(log(1/epsilon - 1)*(1 - (noEvent(max(0, time - rampUpTime[i])))/rampUpK[i]))));
         else
-          rampUp[i] = (rampUpTo[i] - rampUpTo[i - 1])/(1 + exp(log(1/epsilon - 1)*(1 - (delay(time, rampUpTime[i], rampUpTime[i]))/rampUpK[i])));
+          rampUp[i] = (rampUpTo[i] - rampUpTo[i - 1])*(if startRamped and rampUpTime[i] <= 0 then 1
+            else 1/(1 + exp(log(1/epsilon - 1)*(1 - (noEvent(max(0, time - rampUpTime[i])))/rampUpK[i]))));
         end if;
       end for;
       // rampDown: exponential coast-down of the accumulated FF after tripTime.
       if time >= tripTime then
-        rampDown = (-sum(rampUp))*exp(-(1/tripK)*delay(time, tripTime, tripTime)) + sum(rampUp);
+        rampDown = (-sum(rampUp))*exp(-(1/tripK)*noEvent(max(0, time - tripTime))) + sum(rampUp);
       else
         rampDown = 0;
       end if;
@@ -1086,16 +1126,19 @@ package SMD_MSR_Modelica
       decayPowPN2 = P_decay.Q*volPN;
       decayPowPN3 = P_decay.Q*volPN;
       decayPowPN4 = P_decay.Q*volPN;
-      powPN1 = flowPowPN1 + condPowPN1 - convPowPN1 + radPowPN1 + decayPowPN1;
-      powPN2 = flowPowPN2 + condPowPN2 - convPowPN2 + radPowPN2 + decayPowPN2;
-      powPN3 = flowPowPN3 + condPowPN3 - convPowPN3 + radPowPN3 + decayPowPN3;
+      // Axial conduction is inflow-minus-outflow (matching FuelChannel/Pipe):
+      // each node also subtracts the heat it conducts to the next node
+      // downstream, so interior conduction faces create no net energy.
+      powPN1 = flowPowPN1 + condPowPN1 - condPowPN2 - convPowPN1 + radPowPN1 + decayPowPN1;
+      powPN2 = flowPowPN2 + condPowPN2 - condPowPN3 - convPowPN2 + radPowPN2 + decayPowPN2;
+      powPN3 = flowPowPN3 + condPowPN3 - condPowPN4 - convPowPN3 + radPowPN3 + decayPowPN3;
       powPN4 = flowPowPN4 + condPowPN4 - convPowPN4 + radPowPN4 + decayPowPN4;
       powTN1 = convPowPN1 + convPowPN2 - convPowSN3 - convPowSN4;
       powTN2 = convPowPN3 + convPowPN4 - convPowSN1 - convPowSN2;
-      powSN1 = flowPowSN1 + convPowSN1;
-      powSN2 = flowPowSN2 + convPowSN2;
-      powSN3 = flowPowSN3 + convPowSN3;
-      powSN4 = flowPowSN4 + convPowSN4;
+      powSN1 = flowPowSN1 + condPowSN1 - condPowSN2 + convPowSN1;
+      powSN2 = flowPowSN2 + condPowSN2 - condPowSN3 + convPowSN2;
+      powSN3 = flowPowSN3 + condPowSN3 - condPowSN4 + convPowSN3;
+      powSN4 = flowPowSN4 + condPowSN4 + convPowSN4;
       annotation(
         Diagram(graphics = {Rectangle(extent = {{-149.242, 59.993}, {149.242, -59.993}}), Rectangle(origin = {-80, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {100, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-20, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-80.95, -29.61}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.63, -9.61}, {19.63, 9.61}}), Rectangle(origin = {-20.12, -29.82}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.88, 9.82}, {19.88, -9.82}}), Rectangle(origin = {40.8, -29.85}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.8, 9.85}, {19.8, -9.85}}), Rectangle(origin = {100.85, -29.89}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.85, 9.89}, {19.85, -9.89}}), Rectangle(origin = {70.92, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Rectangle(origin = {40, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-50.08, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Text(origin = {120, 49}, extent = {{-28, 9}, {28, -9}}, textString = "HX")}, coordinateSystem(extent = {{-160, 60}, {160, -60}})),
         Icon(graphics = {Rectangle(lineThickness = 1, extent = {{-149.24, 59.99}, {149.24, -59.99}}), Rectangle(origin = {-60.08, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Rectangle(origin = {30, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {60.92, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Rectangle(origin = {-30.12, -30.82}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.88, 9.82}, {19.88, -9.82}}), Rectangle(origin = {-30, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-90, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {90, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {30.8, -30.85}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.8, 9.85}, {19.8, -9.85}}), Rectangle(origin = {90.85, -30.89}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.85, 9.89}, {19.85, -9.89}}), Rectangle(origin = {-90.95, -30.61}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.63, -9.61}, {19.63, 9.61}}), Text(origin = {118, 49}, extent = {{-28, 9}, {28, -9}}, textString = "HX")}, coordinateSystem(extent = {{-160, 60}, {160, -60}})));
@@ -1108,7 +1151,11 @@ package SMD_MSR_Modelica
   package Nuclear
     /* Standard 6-group point kinetics equations for a fixed-fuel reactor.
        ReactivityIn.R is in pcm and is multiplied by 1e-5 to obtain Delta k/k.
-       The external neutron source S is normalised to 1.58x10^20 n/s (~ full-power flux). */
+       An absolute external neutron source S [n/s] enters as eta_S*S/N0, with
+       the full-power neutron population N0 = LAMBDA*nu*P/E_f (physics review
+       2026-09-27; formerly the inherited constant 1.58x10^20) and the source
+       effectiveness eta_S = sourceEffectiveness (default 1, an unsourced
+       unit-importance assumption). */
     model PKE
       //Parameter declaration
       parameter Integer numGroups(min = 1) = 6;
@@ -1125,6 +1172,16 @@ package SMD_MSR_Modelica
       "Time to switch from nFloor to nFloorDuringForcing"
       annotation(Evaluate = false);
       parameter SMD_MSR_Modelica.Units.InitMode initMode = SMD_MSR_Modelica.Units.InitMode.FixedStart;
+      parameter Real nu(unit = "1") = 2.43
+        "Neutrons per fission (U-235 thermal nu-bar); enters the external-source normalization";
+      parameter SMD_MSR_Modelica.Units.Power nominalPower = 1e6
+        "Nominal (n = 1) fission power [W]; enters the external-source normalization";
+      parameter Real energyPerFission(unit = "J") = 3.204353268e-11
+        "Recoverable energy per fission [J] (200 MeV); enters the external-source normalization";
+      parameter Real sourceEffectiveness(unit = "1") = 1
+        "External-source effectiveness eta_S (source importance relative to the fundamental mode): nomS = eta_S*S/N0. 1 = unit importance, an unsourced assumption; absolute source-range power scales with it";
+      final parameter Real sourceScale(unit = "1") = LAMBDA*nu*nominalPower/energyPerFission
+        "Full-power neutron population N0 = LAMBDA*nu*P/E_f (physics review 2026-09-27; formerly the inherited constant 1.58e20, ~8.7e6 too large): nomS = S/N0 [1/s] in the normalized neutron balance (diagnostic; the balance uses the factored form)";
 
       SMD_MSR_Modelica.Units.DelayedNeutronFrac sumBeta;
       SMD_MSR_Modelica.Units.PrecursorConc CG[numGroups];
@@ -1160,6 +1217,10 @@ package SMD_MSR_Modelica
       end for;
       assert(sum(beta) > 0,
         "PKE: delayed-neutron fractions must have a strictly positive sum");
+      assert(nu > 0 and nominalPower > 0 and energyPerFission > 0,
+        "PKE: nu, nominalPower and energyPerFission must be > 0 (they set the source normalization N0 = LAMBDA*nu*P/E_f)");
+      assert(sourceEffectiveness >= 0,
+        "PKE: source effectiveness sourceEffectiveness must be >= 0 (nomS = sourceEffectiveness*S/N0)");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         n_population.n = max(n_0, nFloor);
         for i in 1:numGroups loop
@@ -1181,7 +1242,9 @@ package SMD_MSR_Modelica
       reactivity = feedback.rho + externalReactivityIn;
       sumBeta = sum(beta);
       externalReactivityIn = ReactivityIn.R*1E-5; // convert pcm -> Delta k/k
-      nomS = S.nDot/1.58E20; // normalise source to unit neutron population
+      // Normalise the source to unit neutron population: S/N0, written with
+      // LAMBDA in the divisor so a zero generation time names kin.LAMBDA.
+      nomS = sourceEffectiveness*S.nDot*energyPerFission/(LAMBDA*nu*nominalPower);
       for i in 1:numGroups loop
         CGDecay[i] = lambda[i]*CG[i];
         der(CG[i]) = (beta[i]*nClamped)/LAMBDA - CGDecay[i];
@@ -1197,14 +1260,16 @@ package SMD_MSR_Modelica
     /* Modified PKE for circulating-fuel MSR (Dulla et al. formulation).
        Delayed-neutron precursors are swept out of the core during out-of-core
        transit (varTauLoop) and return with radioactive decay applied (CGReturn).
-       Circulating-fuel reactivity treatment: this legacy model applies
-       Dulla-type instantaneous flow compensation via rho_0dyn = beta -
-       sum(CG_0dyn), where CG_0dyn is the steady-state precursor distribution
-       at the current core/loop transit times, so the bias correction tracks
-       the instantaneous flow fraction (applied while FF > minFlowFraction). This
-       differs from the segmented family: SegmentedMSR.Nuclear.PKE_T freezes
-       its residual trim compensation (rhoTrim) once at initialization and
-       holds it constant thereafter. */
+       Circulating-fuel reactivity treatment (physics review 2026-09-27): the
+       compensation that makes the nominal-flow state critical is FROZEN at
+       the nominal transit times, rho_0nom = beta - sum(CG_0(nomTauCore,
+       nomTauLoop)), so a flow change inserts the physical reactivity of the
+       changed precursor loss (a pump stop inserts about +70 pcm; the PSAR
+       states +69 pcm) - the same convention as SegmentedMSR.Nuclear.PKE_T,
+       whose rhoTrim is frozen at initialization. liveFlowCompensation = true
+       restores the former Dulla-type instantaneous compensation rho_0dyn =
+       beta - sum(CG_0dyn) at the current transit times (applied while FF >
+       minFlowFraction), which cancels the steady-state flow reactivity. */
     model mPKE
       //Parameter declaration
       parameter Integer numGroups(min = 1);
@@ -1223,10 +1288,26 @@ package SMD_MSR_Modelica
       "Time to switch from nFloor to nFloorDuringForcing"
       annotation(Evaluate = false);
       parameter SMD_MSR_Modelica.Units.InitMode initMode = SMD_MSR_Modelica.Units.InitMode.FixedStart;
+      parameter Real nu(unit = "1") = 2.43
+        "Neutrons per fission (U-235 thermal nu-bar); enters the external-source normalization";
+      parameter SMD_MSR_Modelica.Units.Power nominalPower = 1e6
+        "Nominal (n = 1) fission power [W]; enters the external-source normalization";
+      parameter Real energyPerFission(unit = "J") = 3.204353268e-11
+        "Recoverable energy per fission [J] (200 MeV); enters the external-source normalization";
+      parameter Real sourceEffectiveness(unit = "1") = 1
+        "External-source effectiveness eta_S (source importance relative to the fundamental mode): nomS = eta_S*S/N0. 1 = unit importance, an unsourced assumption; absolute source-range power scales with it";
+      final parameter Real sourceScale(unit = "1") = LAMBDA*nu*nominalPower/energyPerFission
+        "Full-power neutron population N0 = LAMBDA*nu*P/E_f (physics review 2026-09-27; formerly the inherited constant 1.58e20, ~8.7e6 too large): nomS = S/N0 [1/s] in the normalized neutron balance (diagnostic; the balance uses the factored form)";
+      parameter Boolean liveFlowCompensation = false
+        "False (default): circulating-fuel compensation frozen at the nominal transit times (rho_0nom); true: the former instantaneous compensation rho_0dyn at the current flow";
+      final parameter SMD_MSR_Modelica.Units.DelayedNeutronFrac rho_0nom = sum(beta) - sum({beta[i]/(1 + (1/(lambda[i]*nomTauCore))*(1 - exp(-lambda[i]*nomTauLoop))) for i in 1:numGroups})
+        "Nominal-flow circulating-fuel reactivity loss (the frozen compensation)";
       //Variable decleration
       SMD_MSR_Modelica.Units.DelayedNeutronFrac sumBeta;
       SMD_MSR_Modelica.Units.DelayedNeutronFrac sumCG_0dyn;
       SMD_MSR_Modelica.Units.DelayedNeutronFrac rho_0dyn;
+      SMD_MSR_Modelica.Units.DelayedNeutronFrac rho_0applied
+        "Circulating-fuel compensation actually applied in the reactivity balance (rho_0nom, or the gated rho_0dyn when liveFlowCompensation)";
       //SMD_MSR_Modelica.Units.DelayedNeutronFrac beta_eff;
       SMD_MSR_Modelica.Units.ResidenceTime varTauCore;
       SMD_MSR_Modelica.Units.ResidenceTime varTauLoop;
@@ -1276,6 +1357,10 @@ package SMD_MSR_Modelica
       end for;
       assert(sum(beta) > 0,
         "mPKE: delayed-neutron fractions must have a strictly positive sum");
+      assert(nu > 0 and nominalPower > 0 and energyPerFission > 0,
+        "mPKE: nu, nominalPower and energyPerFission must be > 0 (they set the source normalization N0 = LAMBDA*nu*P/E_f)");
+      assert(sourceEffectiveness >= 0,
+        "mPKE: source effectiveness sourceEffectiveness must be >= 0 (nomS = sourceEffectiveness*S/N0)");
       if initMode == SMD_MSR_Modelica.Units.InitMode.FixedStart then
         n_population.n = max(n_0, nFloor);
         for i in 1:numGroups loop
@@ -1302,21 +1387,24 @@ package SMD_MSR_Modelica
       nClamped = noEvent(max(n_population.n, nFloorActive));
       nDotRaw = ((reactivity - sum(beta))/LAMBDA)*nClamped + sum(CGDecay) + nomS;
       der(n_population.n) = if n_population.n <= nFloorActive and nDotRaw < 0 then 0 else nDotRaw;
-      // Apply flow-dependent circulating-fuel compensation only when the core loop is flowing.
-      // Use rho_0dyn (current FF) so the compensation tracks instantaneous flow reactivity loss.
-      reactivity = feedback.rho + externalReactivityIn
-        + (if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.minFlowFraction then rho_0dyn else 0);
+      // Circulating-fuel compensation: frozen at nominal flow (default), or the
+      // former instantaneous rho_0dyn applied only while the loop is flowing.
+      rho_0applied = if liveFlowCompensation then
+          (if fuelFlowFrac.FF > SMD_MSR_Modelica.Constants.minFlowFraction then rho_0dyn else 0)
+        else rho_0nom;
+      reactivity = feedback.rho + externalReactivityIn + rho_0applied;
       sumBeta = sum(beta);
       sumCG_0dyn = sum(CG_0dyn);
       externalReactivityIn = ReactivityIn.R*1E-5;
-      nomS = S.nDot/1.58E20;
+      // Source normalised to unit population, S/N0 (LAMBDA in the divisor).
+      nomS = sourceEffectiveness*S.nDot*energyPerFission/(LAMBDA*nu*nominalPower);
       rho_0dyn = sumBeta - sumCG_0dyn;
       for i in 1:numGroups loop
         der(CG[i]) = (beta[i]*nClamped)/LAMBDA - CGDecay[i] - (CG[i]/varTauCore) + CGReturn[i];
         CGDecay[i] = lambda[i]*CG[i];
         // Precursors re-enter the core after one loop transit with radioactive decay applied.
         CGReturn[i] = (delay(CG[i], varTauLoop, SMD_MSR_Modelica.Constants.MaxTau)*exp(-lambda[i]*varTauLoop))/varTauCore;
-        // Dynamic (current-FF) steady-state CG; used to track rho_0 at varying flow.
+        // Dynamic (current-FF) steady-state CG: the liveFlowCompensation branch and a diagnostic.
         CG_0dyn[i] = beta[i]/(1 + (1/(lambda[i]*varTauCore))*(1 - exp(-lambda[i]*varTauLoop)));
       end for;
       when n_population.n < nFloorActive then
@@ -1334,10 +1422,12 @@ package SMD_MSR_Modelica
        Fission-power split: kFN1/kFN2/kG divide the total fission source among fuel
        node 1, fuel node 2, and the graphite node (fissPowFN1/fissPowFN2/fissPowGN).
        The flat kG = 0.07 is the lumped dissertation assumption (93%/7% fuel/graphite
-       split). The nine-region models pass region-resolved shares instead,
-       kG[i] = kHT1[i] + kHT2[i], whose RAW total ~0.060769 is intentionally never
-       renormalized to the thesis 7% (see the qModChain9R provenance note and the
-       data-derived normalizer fSaltNormalizer9R in SegmentedMSR.Reactors). */
+        split). The nine-region models pass region-resolved shares instead,
+        kG[i] = kHT1[i] + kHT2[i], whose total is 0.060729586498348 after the
+        2026-09-20 B3 Sigma=1 renormalization (the raw MSRR.R9MSRRuhx family was
+        ~0.060769) and is intentionally never forced to the thesis 7% (see the
+        qModChain9R provenance note and the data-derived normalizer
+        fSaltNormalizer9R in SegmentedMSR.Reactors). */
     model FuelChannel
       parameter SMD_MSR_Modelica.Units.Volume vol_FN1;
       parameter SMD_MSR_Modelica.Units.Volume vol_FN2;
@@ -2452,11 +2542,14 @@ package SMD_MSR_Modelica
         Real amp[numSteps];
         output SMD_MSR_Modelica.PortsConnectors.RealOut step annotation(
           Placement(visible = true, transformation(origin = {0, 22}, extent = {{-20, -20}, {20, 20}}, rotation = 0), iconTransformation(origin = {4, 22}, extent = {{-24, -24}, {24, 24}}, rotation = 0)));
+      initial equation
+        assert(numSteps >= 1,
+          "Stepper: numSteps must be >= 1 (it sizes stepTime, amplitude and amp; min = 1 alone is only a warning)");
       equation
         for i in 1:numSteps loop
-          if time > stepTime[i] and i == 1 then
+          if time >= stepTime[i] and i == 1 then
             amp[i] = amplitude[i];
-          elseif time > stepTime[i] and i > 1 then
+          elseif time >= stepTime[i] and i > 1 then
             amp[i] = amplitude[i] - amplitude[i - 1];
           else
             amp[i] = 0;

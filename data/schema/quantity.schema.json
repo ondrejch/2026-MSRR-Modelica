@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "quantity.schema.json",
+  "title": "Physical quantity",
+  "description": "A numeric leaf (scalar or homogeneous nested numeric array) with an explicit SI or declared unit. Enforced at load time by helpers.data_validation (errors name the file and dotted path). JSON object keys must not contain '.' — dotted paths are documentation only.",
+  "type": "object",
+  "required": ["value", "unit"],
+  "additionalProperties": false,
+  "properties": {
+    "value": {
+      "description": "Finite number, or a homogeneous array (possibly nested) of finite numbers. Booleans are rejected; every leaf must be finite (NaN/inf are not physical). Caveat: PyYAML (YAML 1.1) parses exponent notation without a signed exponent (e.g. 1.0e6, 1.58e20) as a string, so authored decks may carry numeric strings where this schema says number; the loader (helpers.data_validation._number via coerce_number) accepts such numeric strings and coerces them to a finite float, so the loader is the effective contract.",
+      "oneOf": [
+        { "type": "number" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/numberOrArray" }
+        }
+      ]
+    },
+    "unit": {
+      "type": "string",
+      "enum": [
+        "1",
+        "1/s",
+        "1/K",
+        "1/m",
+        "1/(m2.s)",
+        "1/(cm2.s)",
+        "b",
+        "J",
+        "J/(kg.K)",
+        "W",
+        "W/(m.K)",
+        "W/(m2.K)",
+        "W/K",
+        "degC",
+        "kg/m3",
+        "kg/s",
+        "m",
+        "m2",
+        "m3",
+        "m3/s",
+        "pcm",
+        "rad/s",
+        "s"
+      ],
+      "description": "Unit of value. Use 1 for dimensionless. Temperatures in plant YAML are degC (lumped native); the segmented emitter converts to K. Microscopic poison cross-sections are b (barns) and poison flux is 1/(cm2.s); the segmented emitter converts those to m2 and 1/(m2.s). W/(m2.K) carries radial-stack film coefficients and kg/s the prescribed annular-loop mass flow (TASK-20260914-01 P1). Extending this list requires updating helpers.data_validation.SUPPORTED_UNITS in the same change."
+    },
+    "doc": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What this quantity is. Copied into data/CATALOG.md. Required (with source) on the plant identity quantities and the kinetics/decay_heat/materials sections; optional elsewhere."
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Modelica path or paper provenance of the current digits. Required (with doc) on the plant identity quantities and the kinetics/decay_heat/materials sections; optional elsewhere."
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Optional structured provenance block attached to the quantity itself (e.g. the k_mod correlation record: report, authors, material grade, correlation coefficients with units, evaluation temperature, unrounded/rounded results, rounding step). Free-form mapping; record-specific structure is validated by helpers.plant_config."
+    }
+  },
+  "$defs": {
+    "numberOrArray": {
+      "oneOf": [
+        { "type": "number" },
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/numberOrArray" } }
+      ]
+    }
+  }
+}

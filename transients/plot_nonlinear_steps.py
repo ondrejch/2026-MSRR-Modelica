@@ -2,8 +2,11 @@
 """Plot nonlinear step dynamics results for manuscript figures (1R vs 9R).
 
 With ``--package segmented`` (default: ``legacy``) the CSVs are read from
-the nested ``<outputs_dir>/segmented/<core>/`` tree written by
-``run_nonlinear_steps --package segmented``, and columns resolve through the
+the ``<outputs_dir>/segmented/<core>/`` tree an explicit ``--out_dir`` run of
+``run_nonlinear_steps --package segmented`` writes, or from
+``<outputs_dir>/<core>/`` (the runner's default root,
+``00runs/segmented/transients-<core_models>/``, which is also this plotter's
+segmented default; review 2026-10-01 M6), and columns resolve through the
 DECLARED candidates in ``helpers/segmented_runs.py``
 (``CSV_OVERLAY_COLUMNS_BY_CORE``, ``CSV_POWER_COLUMN_CANDIDATES``,
 ``CSV_FEEDBACK_COLUMNS_BY_CORE`` -- the 9R feedback is summed from
@@ -29,12 +32,13 @@ from __future__ import annotations
 import argparse
 import colorsys
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
 
 try:
-    from .paths import default_transients_run_dir
+    from .paths import default_segmented_transients_run_dir, default_transients_run_dir
     from .run_nonlinear_steps import (
         DEFAULT_PACKAGE,
         LEGACY_PACKAGE,
@@ -42,7 +46,7 @@ try:
         SEGMENTED_PACKAGE,
     )
 except ImportError:
-    from paths import default_transients_run_dir
+    from paths import default_segmented_transients_run_dir, default_transients_run_dir
     from run_nonlinear_steps import (
         DEFAULT_PACKAGE,
         LEGACY_PACKAGE,
@@ -110,6 +114,29 @@ CORE_STYLE = {
         "line": "-",
         "lightness_scale": 1.50,
         "linewidth": 1.1,
+    },
+    # 1r10seg (TASK-20260906-01): the third grayscale channel sits between
+    # 1R (dark / long-dash) and 9R (light / solid) -- unshifted base color
+    # (lightness scale 1.0), a SHORT dash pattern distinct from both, and an
+    # intermediate linewidth. Grayscale separation does not rely on color
+    # alone (dash + width differ from both existing cores).
+    "1r10seg": {
+        "label": "1R-10Seg",
+        "line": (0, (2.0, 2.0)),
+        "lightness_scale": 1.00,
+        "linewidth": 1.35,
+    },
+    # r5x5_z10 (TASK-20260906-02): the fourth grayscale channel. A lightness
+    # scale of 0.85 sits STRICTLY between the dark 1R (0.70) and the
+    # unshifted 1r10seg (1.00) for every base color, a DASH-DOT pattern
+    # distinct from the 1R long dash / 9R solid / 1r10seg short dash, and
+    # the thinnest linewidth. Grayscale separation does not rely on color
+    # alone (dash + width differ from all existing cores).
+    "r5x5_z10": {
+        "label": "5x5-10Seg",
+        "line": (0, (4.0, 1.5, 1.0, 1.5)),
+        "lightness_scale": 0.85,
+        "linewidth": 0.9,
     },
 }
 
@@ -202,7 +229,7 @@ def _resolve_outputs_for_core(
             return alt_core_dir
         raise FileNotFoundError(
             f"Missing segmented outputs for core '{core_model}': "
-            f"expected {seg_core_dir}"
+            f"expected {seg_core_dir} or {alt_core_dir}"
         )
     core_dir = outputs_dir / core_model
     if core_dir.is_dir():
@@ -278,6 +305,77 @@ def load_power_time(csv_path: Path) -> tuple[np.ndarray, np.ndarray]:
     return t_s, p_kw
 
 
+_REGION_INDEX_RE = re.compile(r"(?:^|\.)R([1-9])\.")
+
+
+def _legacy_9r_region_volumes() -> dict[str, np.ndarray]:
+    """Per-region node volumes of the legacy 9R mesh [m3], from the plant deck
+    (``cores.r9.vol_F1`` / ``vol_F2`` / ``vol_G``)."""
+    try:
+        from helpers.plant_config import load_plant, quantity_value
+    except ImportError:  # direct-script execution outside the repo root
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from helpers.plant_config import load_plant, quantity_value
+    r9 = load_plant("msrr")["cores"]["r9"]
+    return {
+        key: np.asarray(quantity_value(r9[key]), dtype=float)
+        for key in ("vol_F1", "vol_F2", "vol_G")
+    }
+
+
+def _region_weighted(df: pd.DataFrame, cols: list[str], volumes: np.ndarray | None):
+    """(sum_i V_i*T_i, sum_i V_i) over the fuel-channel columns of the nine
+    legacy 9R regions R1..R9 when all nine resolve; otherwise (sum, count) of
+    the plain columns (1R and any unrecognized layout: an unweighted mean)."""
+    if volumes is not None:
+        # One fuel-channel column per region (msre9r.R<i>.<node>.T); the
+        # reactivity-feedback connectors (msre9r.RF<i>.<node>.T) mirror the
+        # same temperatures and are skipped.
+        by_region: dict[int, str] = {}
+        for col in cols:
+            m = _REGION_INDEX_RE.search(col)
+            if m:
+                by_region.setdefault(int(m.group(1)) - 1, col)
+        if sorted(by_region) == list(range(len(volumes))):
+            ordered = [by_region[i] for i in range(len(volumes))]
+            values = df[ordered].to_numpy(dtype=float)
+            return values @ volumes, float(volumes.sum())
+    values = df[cols].to_numpy(dtype=float)
+    return values.sum(axis=1), float(values.shape[1])
+
+
+def core_average_temperatures(
+    df: pd.DataFrame, fuel1_cols: list[str], fuel2_cols: list[str], grap_cols: list[str]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Core-average fuel and graphite temperatures.
+
+    Physics review 2026-09-27 (B3): the 9R averages are VOLUME-weighted (fuel
+    over both fuel nodes of all nine regions, graphite over the nine graphite
+    nodes) -- the mean temperature of the fuel and graphite inventories. The
+    former unweighted mean over region columns counted a region 16x smaller
+    by volume the same as the largest one (1 $ step on the review-2026-09
+    data: peak fuel dT 83.0 K unweighted vs 67.4 K volume-weighted). The 1R
+    core has one channel with
+    equal fuel-node volumes, so its plain mean is already volume-weighted."""
+    volumes = None
+    if max(len(fuel1_cols), len(fuel2_cols), len(grap_cols)) > 1:
+        volumes = _legacy_9r_region_volumes()
+    f1_sum, f1_w = _region_weighted(df, fuel1_cols, volumes["vol_F1"] if volumes else None)
+    f2_sum, f2_w = _region_weighted(df, fuel2_cols, volumes["vol_F2"] if volumes else None)
+    g_sum, g_w = _region_weighted(df, grap_cols, volumes["vol_G"] if volumes else None)
+    if (
+        volumes is not None
+        and f1_w == float(volumes["vol_F1"].sum())
+        and f2_w == float(volumes["vol_F2"].sum())
+    ):
+        # Both fuel nodes resolved to the nine regions: pooled volume weight.
+        fuel_avg = (f1_sum + f2_sum) / (f1_w + f2_w)
+    else:
+        # Parent semantics for any other layout: mean of the two node means.
+        fuel_avg = 0.5 * (f1_sum / f1_w + f2_sum / f2_w)
+    return fuel_avg, g_sum / g_w
+
+
 def load_fuel_graphite_feedback(csv_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     df = pd.read_csv(csv_path)
     columns = list(df.columns)
@@ -305,10 +403,7 @@ def load_fuel_graphite_feedback(csv_path: Path) -> tuple[np.ndarray, np.ndarray,
     if fb_col is None and not fb_region_cols:
         raise KeyError(f"{csv_path}: missing total temperature feedback column")
 
-    fuel1 = df[fuel1_cols].to_numpy(dtype=float).mean(axis=1)
-    fuel2 = df[fuel2_cols].to_numpy(dtype=float).mean(axis=1)
-    graphite = df[grap_cols].to_numpy(dtype=float).mean(axis=1)
-    fuel_avg = 0.5 * (fuel1 + fuel2)
+    fuel_avg, graphite = core_average_temperatures(df, fuel1_cols, fuel2_cols, grap_cols)
     if fb_col is not None:
         feedback_raw = df[fb_col].to_numpy(dtype=float)
     else:
@@ -377,6 +472,11 @@ def load_uhx_signals(csv_path: Path) -> dict[str, np.ndarray]:
     else:
         feedback_raw = df[feedback_region_cols].to_numpy(dtype=float).sum(axis=1)
 
+    # B3 (physics review 2026-09-27): volume-weighted graphite mean for 9R.
+    graphite_sum, graphite_weight = _region_weighted(
+        df, grap_cols,
+        _legacy_9r_region_volumes()["vol_G"] if len(grap_cols) > 1 else None,
+    )
     return {
         "time": df[time_col].to_numpy(dtype=float),
         "total_power": df[total_col].to_numpy(dtype=float),
@@ -384,7 +484,7 @@ def load_uhx_signals(csv_path: Path) -> dict[str, np.ndarray]:
         "decay_power": df[decay_col].to_numpy(dtype=float),
         "fuel_in": df[fuel_in_col].to_numpy(dtype=float),
         "fuel_out": df[fuel_out_col].to_numpy(dtype=float),
-        "graphite": df[grap_cols].to_numpy(dtype=float).mean(axis=1),
+        "graphite": graphite_sum / graphite_weight,
         "feedback_pcm": feedback_raw * 1.0e5,
     }
 
@@ -459,6 +559,10 @@ def segmented_temperature_columns(
 ) -> tuple[list[str], list[str]]:
     """Fixed-overlay columns for the (fuel-panel, slow-node-panel).
 
+    1r10seg (TASK-20260906-01) and r5x5_z10 (TASK-20260906-02) ride the 1R
+    column set: their rigs expose the same ``TF1``/``TF2``/``TG`` overlay
+    outputs (5+5 tap means), never the 9R zone-outlet/plenum set.
+
     Ambiguity H decision (TASK-20260823-04, R2): the 9R panel rides the rig's
     FIXED overlay columns -- zone outlets ``TZout[1..4]`` averaged for the
     salt/fuel panel and the upper-plenum storage state ``TPot`` as the slow
@@ -467,7 +571,7 @@ def segmented_temperature_columns(
     visible through ``TZout``/``TPot`` deltas) but remains available in the
     CSVs. Zone-cell means computed from component signals were rejected.
     """
-    if seg.normalize_core_key(core_model) == "1r":
+    if seg.normalize_core_key(core_model) in seg.ONE_R_COLUMN_SET_CORES:
         return ["TF1", "TF2"], ["TG"]
     return (
         [f"TZout[{idx}]" for idx in range(1, 5)],
@@ -478,8 +582,12 @@ def segmented_temperature_columns(
 def segmented_loop_temperature_columns(
     seg, core_model: str
 ) -> tuple[list[str], list[str]]:
-    """(core-inlet, outlet) fixed-overlay columns for the UHX-trip panel."""
-    if seg.normalize_core_key(core_model) == "1r":
+    """(core-inlet, outlet) fixed-overlay columns for the UHX-trip panel.
+
+    1r10seg (TASK-20260906-01) and r5x5_z10 (TASK-20260906-02) use the 1R
+    pair (``TinCore``/``ToutCore``).
+    """
+    if seg.normalize_core_key(core_model) in seg.ONE_R_COLUMN_SET_CORES:
         return ["TinCore"], ["ToutCore"]
     return ["TinCore"], ["ToutPlenum"]
 
@@ -649,6 +757,7 @@ def plot_steps(
     core_models: list[str],
     *,
     readers: dict[str, object] | None = None,
+    power_scale: str = "log",
 ) -> Path:
     step_time_s = 2000.0
     fig, axes = plt.subplots(4, 1, figsize=(10.5, 9.8), sharex=True)
@@ -675,22 +784,28 @@ def plot_steps(
             tag = CORE_STYLE[core_model]["label"]
             curve_label = f"{label} ({tag})"
 
-            axes[0].plot(t_rel[mask], p_kw[mask] * 1000.0, linewidth=width, linestyle=style, label=curve_label, color=color)
+            axes[0].plot(t_rel[mask], p_kw[mask] / 1000.0, linewidth=width, linestyle=style, label=curve_label, color=color)
             axes[1].plot(t_rel[mask], (fuel_avg - fuel_ref)[mask], linewidth=width, linestyle=style, color=color)
             axes[2].plot(t_rel[mask], (graphite - graphite_ref)[mask], linewidth=width, linestyle=style, color=color)
             axes[3].plot(t_rel[mask], feedback_pcm[mask], linewidth=width, linestyle=style, color=color)
 
-    axes[0].set_title("Total Power")
-    axes[0].set_ylabel("Power [W]")
-    axes[0].legend(loc="upper right", ncol=2, fontsize=9)
+    # Physics review 2026-09-27 (D): the legacy loader plots fissionPower.P
+    # (decay heat excluded); the segmented readers plot pb.reactorPower
+    # (fission + decay). Label the panel by the quantity actually drawn.
+    axes[0].set_title("Fission Power" if readers is None else "Total Power")
+    axes[0].set_ylabel("Power [MW]")
+    # Log scale by default: the 2 $ prompt burst (~2 GW on the fine output
+    # grid) and the ~1 MW tails share one readable panel.
+    axes[0].set_yscale(power_scale)
+    _apply_case_core_legend(axes[0], STEP_CASES, core_models, loc="upper right", ncol=2, fontsize=9)
     axes[0].grid(True, alpha=0.3)
 
     axes[1].set_title("Core Avg. Fuel Temperature Change")
-    axes[1].set_ylabel("Delta Temperature [C]")
+    axes[1].set_ylabel("Temperature change [K]")
     axes[1].grid(True, alpha=0.3)
 
     axes[2].set_title("Core Graphite Temperature Change")
-    axes[2].set_ylabel("Delta Temperature [C]")
+    axes[2].set_ylabel("Temperature change [K]")
     axes[2].grid(True, alpha=0.3)
 
     axes[3].set_title("Total Temperature Feedback")
@@ -702,6 +817,7 @@ def plot_steps(
     fig.tight_layout()
     out_path = out_dir / "MSRRstep_nominal.png"
     fig.savefig(out_path, dpi=180)
+    plt.close(fig)
     return out_path
 
 
@@ -711,6 +827,7 @@ def plot_flow(
     core_models: list[str],
     *,
     readers: dict[str, object] | None = None,
+    power_scale: str = "log",
 ) -> Path:
     step_time_s = 4000.0
     fig, axes = plt.subplots(4, 1, figsize=(10.5, 9.8), sharex=True)
@@ -737,22 +854,28 @@ def plot_flow(
             tag = CORE_STYLE[core_model]["label"]
             curve_label = f"{label} ({tag})"
 
-            axes[0].plot(t_rel[mask], p_kw[mask] * 1000.0, linewidth=width, linestyle=style, label=curve_label, color=color)
+            axes[0].plot(t_rel[mask], p_kw[mask] / 1000.0, linewidth=width, linestyle=style, label=curve_label, color=color)
             axes[1].plot(t_rel[mask], (fuel_avg - fuel_ref)[mask], linewidth=width, linestyle=style, color=color)
             axes[2].plot(t_rel[mask], (graphite - graphite_ref)[mask], linewidth=width, linestyle=style, color=color)
             axes[3].plot(t_rel[mask], feedback_pcm[mask], linewidth=width, linestyle=style, color=color)
 
-    axes[0].set_title("Total Power")
-    axes[0].set_ylabel("Power [W]")
+    # Physics review 2026-09-27 (D): the legacy loader plots fissionPower.P
+    # (decay heat excluded); the segmented readers plot pb.reactorPower
+    # (fission + decay). Label the panel by the quantity actually drawn.
+    axes[0].set_title("Fission Power" if readers is None else "Total Power")
+    axes[0].set_ylabel("Power [MW]")
+    # Log scale by default: the 2 $ prompt burst (~2 GW on the fine output
+    # grid) and the ~1 MW tails share one readable panel.
+    axes[0].set_yscale(power_scale)
     _apply_case_core_legend(axes[0], FLOW_CASES, core_models, loc="upper right", ncol=2, fontsize=9)
     axes[0].grid(True, alpha=0.3)
 
     axes[1].set_title("Core Avg. Fuel Temperature Change")
-    axes[1].set_ylabel("Delta Temperature [C]")
+    axes[1].set_ylabel("Temperature change [K]")
     axes[1].grid(True, alpha=0.3)
 
     axes[2].set_title("Core Graphite Temperature Change")
-    axes[2].set_ylabel("Delta Temperature [C]")
+    axes[2].set_ylabel("Temperature change [K]")
     axes[2].grid(True, alpha=0.3)
 
     axes[3].set_title("Total Temperature Feedback")
@@ -764,6 +887,7 @@ def plot_flow(
     fig.tight_layout()
     out_path = out_dir / "MSRRstep_flow.png"
     fig.savefig(out_path, dpi=180)
+    plt.close(fig)
     return out_path
 
 
@@ -803,10 +927,21 @@ def plot_uhx(
         t_rel_s = signals["time"] - step_time_s
         t_rel_h = t_rel_s / 3600.0
 
+        # One guarded pre-trip baseline for every normalized quantity: the
+        # baseline window mean when samples exist, else the first sample
+        # (power is additionally re-seeded if it resolves to zero).
         base_mask = (t_rel_h >= -0.5) & (t_rel_h < 0.0)
-        base_total = float(signals["total_power"][base_mask].mean()) if np.any(base_mask) else float(signals["total_power"][0])
+        has_base = np.any(base_mask)
+
+        def _base_mean(values: np.ndarray) -> float:
+            return float(values[base_mask].mean()) if has_base else float(values[0])
+
+        base_total = _base_mean(signals["total_power"])
         if base_total == 0.0:
             base_total = float(signals["total_power"][0])
+        base_fuel_in = _base_mean(signals["fuel_in"])
+        base_fuel_out = _base_mean(signals["fuel_out"])
+        base_graphite = _base_mean(signals["graphite"])
 
         norm_total = signals["total_power"] / base_total
         norm_fission = signals["fission_power"] / base_total
@@ -844,7 +979,7 @@ def plot_uhx(
 
         axes[1].plot(
             t_rel_h[mask],
-            (signals["fuel_in"] - float(signals["fuel_in"][base_mask].mean()))[mask],
+            (signals["fuel_in"] - base_fuel_in)[mask],
             color=_core_color(component_colors["fuel_in"], core_model),
             linewidth=width,
             linestyle=style,
@@ -852,7 +987,7 @@ def plot_uhx(
         )
         axes[1].plot(
             t_rel_h[mask],
-            (signals["fuel_out"] - float(signals["fuel_out"][base_mask].mean()))[mask],
+            (signals["fuel_out"] - base_fuel_out)[mask],
             color=_core_color(component_colors["fuel_out"], core_model),
             linewidth=width,
             linestyle=style,
@@ -860,7 +995,7 @@ def plot_uhx(
         )
         axes[1].plot(
             t_rel_h[mask],
-            (signals["graphite"] - float(signals["graphite"][base_mask].mean()))[mask],
+            (signals["graphite"] - base_graphite)[mask],
             color=_core_color(component_colors["graphite"], core_model),
             linewidth=width,
             linestyle=style,
@@ -882,7 +1017,7 @@ def plot_uhx(
     axes[0].legend(loc="upper right", ncol=2, fontsize=9)
 
     axes[1].set_title("Core Temperature Change (relative to pre-trip baseline)")
-    axes[1].set_ylabel("Delta Temperature [C]")
+    axes[1].set_ylabel("Temperature change [K]")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend(loc="upper right", ncol=2, fontsize=9)
 
@@ -896,6 +1031,7 @@ def plot_uhx(
     fig.tight_layout()
     out_path = out_dir / "MSRR_uhx_trip.png"
     fig.savefig(out_path, dpi=180)
+    plt.close(fig)
     return out_path
 
 
@@ -908,8 +1044,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Directory containing simulation CSVs "
-            "(default: 00runs/transients-<core_models>; segmented runs "
-            "resolve <outputs_dir>/segmented/<core>)"
+            "(default: 00runs/transients-<core_models>; with --package "
+            "segmented 00runs/segmented/transients-<core_models>, and "
+            "segmented runs resolve <outputs_dir>/segmented/<core> or "
+            "<outputs_dir>/<core>)"
         ),
     )
     parser.add_argument(
@@ -919,6 +1057,17 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Directory for output figures "
             "(default: same as --outputs_dir)"
+        ),
+    )
+    parser.add_argument(
+        "--power_scale",
+        choices=("log", "linear"),
+        default="log",
+        help=(
+            "Power-axis scale of the step and flow figures (default: log, "
+            "so the sub-second prompt bursts and the ~1 MW tails share one "
+            "panel; the bursts are resolved only on the fine step output "
+            "grid of transients.run_nonlinear_steps)."
         ),
     )
     parser.add_argument(
@@ -941,15 +1090,38 @@ def parse_args() -> argparse.Namespace:
             "candidates (power via pb.reactorPower, 9R feedback summed "
             "from rf1..rf9.TotalTempFeedback, 9R temperature panel from "
             "the fixed overlay columns TZout[1..4]/TPot/ToutPlenum) under "
-            "<outputs_dir>/segmented/<core>."
+            "<outputs_dir>/segmented/<core> or <outputs_dir>/<core> "
+            "(default --outputs_dir 00runs/segmented/transients-<core_models>)."
+        ),
+    )
+    parser.add_argument(
+        "--plant",
+        type=str,
+        default="msrr",
+        help=(
+            "Plant deck of the runs (default: msrr). Only sets the default "
+            "--outputs_dir: a plant other than msrr (segmented only) reads "
+            "00runs/segmented/<plant>/transients-<core_models>."
         ),
     )
     args = parser.parse_args()
+    if args.plant != "msrr" and args.package != SEGMENTED_PACKAGE:
+        parser.error(f"--plant {args.plant!r} requires --package segmented")
     if args.outputs_dir is None:
-        args.outputs_dir = default_transients_run_dir(
-            repo_root,
-            core_models=args.core_models,
-        )
+        # Review 2026-10-01 M6: segmented outputs (and figures, which default
+        # beside them) live under 00runs/segmented/, outside the published
+        # 00runs/transients-* record.
+        if args.package == SEGMENTED_PACKAGE:
+            args.outputs_dir = default_segmented_transients_run_dir(
+                repo_root,
+                core_models=args.core_models,
+                **({} if args.plant == "msrr" else {"plant": args.plant}),
+            )
+        else:
+            args.outputs_dir = default_transients_run_dir(
+                repo_root,
+                core_models=args.core_models,
+            )
     if args.fig_dir is None:
         args.fig_dir = args.outputs_dir
     return args
@@ -984,8 +1156,13 @@ def main() -> int:
         step_readers = {core: _make_step_reader(core) for core in core_models}
         uhx_readers = {core: _make_uhx_reader(core) for core in core_models}
 
-    step_fig = plot_steps(fig_dir, outputs_by_core, core_models, readers=step_readers)
-    flow_fig = plot_flow(fig_dir, outputs_by_core, core_models, readers=step_readers)
+    power_scale = str(getattr(args, "power_scale", "log"))
+    step_fig = plot_steps(
+        fig_dir, outputs_by_core, core_models, readers=step_readers, power_scale=power_scale
+    )
+    flow_fig = plot_flow(
+        fig_dir, outputs_by_core, core_models, readers=step_readers, power_scale=power_scale
+    )
     uhx_fig = plot_uhx(fig_dir, outputs_by_core, core_models, readers=uhx_readers)
 
     print(f"Wrote: {step_fig}")

@@ -1,0 +1,156 @@
+# One-region (lumped + segmented product) core. CLI --core_model 1r.
+# Bound on MSRR.Components.MSRR1R as parameters (then FuelChannel / react).
+# Core maturity, two axes (TASK-20260908-01 P2; split after the rev031
+# review): machine-readable labels validated at load time by
+# helpers/plant_config.py against owner-settable enums.
+#   maturity (implementation): reference_regression | discretization_study |
+#     exploratory_geometry
+#   physical_data_maturity: reviewed_design_basis | legacy_inherited |
+#     pending_source_review | synthetic
+maturity: reference_regression
+physical_data_maturity: legacy_inherited
+n_chan:
+  value: 1
+  unit: "1"
+  doc: Channel count (lumped 1R and segmented product first cut).
+n_seg:
+  value: 2
+  unit: "1"
+  doc: Axial salt segments (legacy fuelNode1 / fuelNode2).
+cell_vol:
+  value: [0.2, 0.2]
+  unit: m3
+  doc: Salt volume per axial node (vol_FN1, vol_FN2).
+  source: MSRR.Components.MSRR1R fuelchannel.vol_FN1/vol_FN2
+vol_graphite:
+  value: 1.758
+  unit: m3
+  doc: Graphite volume worth of heat capacity (vol_GN). Named capacity, not pitch*dz*annulus.
+  source: MSRR.Components.MSRR1R fuelchannel.vol_GN / SegmentedMSR.Reactors.volGN1R
+hAnom:
+  value: 4565.0
+  unit: W/K
+  doc: Channel-total fuel-salt-to-graphite UA at pump FF = 1.
+  source: "Recomputed from the PSAR core geometry (87 fuel channels of 3.016 cm diameter over 1.517 m, Table 4.2-1 and Fig. 4.2-2) with the Cooke & Cox laminar correlation, ORNL-TM-4079 (1973) Eq. 10, Nu = 1.89(Re Pr D/L)^0.33 (fully developed Nu = 3.66 as a floor), a friction-based flow split (79 % of the flow in the channels) and the graphite conduction resistance of the hexagonal cell; band 4.5-6.1 kW/K. Derivation: python3.12 -m helpers.core_ha_derivation; TASK-20261001-01. Formerly 2.4916e4 W/K, which applied the channel film coefficient to a wetted area of 369 channel-equivalents (the whole 400 L vessel) instead of the 87 channels."
+q_fiss:
+  value: [0.465, 0.465]
+  unit: "1"
+  doc: Direct fission heat split to the two salt nodes (kFN1, kFN2).
+  source: MSRR.Components.MSRR1R fuelchannel.kFN1/kFN2
+q_mod:
+  value: [0.035, 0.035]
+  unit: "1"
+  doc: Direct-to-moderator heat split (product PerCell; 0.07/nSeg). Collapse harness uses [0.07, 0] instead.
+  source: SegmentedMSR.Reactors.MSRR1R map.qModDirect; lumped kG = 0.07
+kG:
+  value: 0.07
+  unit: "1"
+  doc: Lumped single-graphite-node fission fraction (kG). Segmented product splits this equally over nSeg.
+  source: MSRR.Components.MSRR1R fuelchannel.kG
+kHT:
+  value: [0.5, 0.5]
+  unit: "1"
+  doc: Convection split kHT_FN1 / kHT_FN2 (htFrac).
+  source: MSRR.Components.MSRR1R fuelchannel.kHT_FN1/kHT_FN2
+flow_frac:
+  value: [1.0]
+  unit: "1"
+  doc: Design flow split over channels; 1R is a single channel.
+IF:
+  value: [0.5, 0.5]
+  unit: "1"
+  doc: Fuel-node importance weights IF1, IF2.
+  source: MSRR.Components.MSRR1R react.IF1/IF2
+IG:
+  value: 1.0
+  unit: "1"
+  doc: Graphite importance weight.
+  source: MSRR.Components.MSRR1R react.IG
+channel_geom:
+  Ac:
+    value: 1.5882
+    unit: m2
+  LF:
+    value: [0.7875, 0.7875]
+    unit: m
+  ArF:
+    value: [3.5172, 3.5172]
+    unit: m2
+  e:
+    value: 0.08
+    unit: "1"
+hAExp:
+  value: 0.33
+  unit: "1"
+  doc: Lumped fuel-channel film exponent (hA = hAnom * FF^hAExp). Documentation copy of the MSRR.Components.FuelChannel literal default.
+  source: "Laminar developing-flow film law, Nu ~ Gz^(1/3) (Cooke & Cox, ORNL-TM-4079). helpers.core_ha_derivation fits n = 0.25 once the fully developed floor and graphite conduction are included; 0.33 is retained (the hAExp sensitivity study bounds the difference) - TASK-20261001-01."
+# Lattice metadata for the later SegmentedMSR bind. These do NOT currently
+# set inventories; cell_vol and vol_graphite do.
+channel_map:
+  pitch_type: Square
+  pitch:
+    value: 0.02
+    unit: m
+    doc: Placeholder lattice pitch. Does not control heat capacity.
+  dz:
+    value: 0.7
+    unit: m
+    doc: Placeholder axial pitch. Does not control heat capacity.
+  chanR:
+    value: [0.008]
+    unit: m
+    doc: Placeholder channel radius. Does not control heat capacity.
+  xy:
+    value: [[0.0, 0.0]]
+    unit: m
+trim:
+  TF1:
+    value: 570.0
+    unit: degC
+    doc: Fuel-node-1 trim setpoint (lumped default). Segmented emit adds 273.15 K.
+    source: MSRR.R1MSRRuhx.fuelTempSetPointNode1
+  TF2:
+    value: 580.41
+    unit: degC
+    doc: Fuel-node-2 trim setpoint.
+    source: MSRR.R1MSRRuhx.fuelTempSetPointNode2
+  TG:
+    value: 570.0000028
+    unit: degC
+    doc: Graphite trim setpoint.
+    source: MSRR.R1MSRRuhx.graphiteTempSetPoint
+heat_loss_tinf:
+  value: 550.0
+  unit: degC
+  doc: Ambient trench temperature when heaters are off (startup heat-loss cases).
+  source: MSRR.R1MSRRuhx.heatLossTinf
+# Segmented-only qualified steady state (physics review 2026-09-27): the
+# per-cell temperatures of SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS at 1 MW, nominal
+# flow, with temperature feedback referenced to the {reference_temperature}
+# isothermal zero-power critical state (the lumped setpoint-table convention).
+# The segmented rigs bind their FixedStart core temperatures AND their
+# feedback setpoints (the tap averages of these arrays) to this block, so they
+# start at the steady state with zero initial feedback. Regenerate with
+#   python3.12 -m helpers.segmented_trim_levels --write
+# Not read by the lumped MSRR.mo package.
+segmented_steady_state:
+  power:
+    value: 1.0
+    unit: "1"
+    doc: Relative power level of the steady state (segmented runs require powerLevel = 1).
+    source: helpers.segmented_trim_levels
+  reference_temperature:
+    value: 570.0
+    unit: degC
+    doc: Isothermal zero-power critical reference state; the feedback-weighted core temperature equals it at every power (lumped core/init convention).
+    source: core/init/setpoints_1r.csv 1e-5 MW row (570 degC isothermal)
+  T_fuel:
+    value: [557.8830962495, 569.1987898633]
+    unit: degC
+    doc: Qualified steady-state fuel-salt cell temperatures, per salt cell / moderator node of the 1-channel x 2-segment map (the collapse rig lumps the graphite into ONE node, so both T_mod entries are equal).
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS)
+  T_mod:
+    value: [577.8359876874, 577.8359876874]
+    unit: degC
+    doc: Qualified steady-state moderator (graphite) node temperatures, same layout as T_fuel.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS)

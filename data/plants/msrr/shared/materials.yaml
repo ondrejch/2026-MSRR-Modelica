@@ -1,0 +1,55 @@
+# Constant material properties (no T-dependence in this model). Shared by 1R and 9R.
+fuel:
+  rho:
+    value: 2600.0
+    unit: kg/m3
+    doc: Fuel-salt density of 67LiF-28BeF2-5UF4 (7Li, 19.75 wt% U-235) at the 568 degC core average (2583 kg/m3 at 600 degC; +-3 %).
+    source: "Additive molar volumes, Cantor et al., ORNL-TM-2316 (1968) p. 28, for the PSAR fuel composition (ACU MSRR PSAR Rev. 0, Sec. 1.2.3.2); TASK-20261001-01. Formerly 2079.4497 kg/m3 (unsourced)."
+  cp:
+    value: 1776.0
+    unit: J/(kg.K)
+    doc: Fuel-salt specific heat of 67LiF-28BeF2-5UF4 (+-4 %).
+    source: "Molar heat-capacity additivity (16, 24 and 44 cal/(mol K) for LiF, BeF2 and UF4), Cantor et al., ORNL-TM-2316 (1968) pp. 22-23; TASK-20261001-01. Formerly 2009.66 J/(kg K), the MSRE fuel-salt value."
+  k:
+    value: 0.0
+    unit: W/(m.K)
+    doc: Fuel-salt conductivity. Zero in production (axial salt conduction off).
+    source: MSRR.R1MSRRuhx.kFuel
+graphite:
+  rho:
+    value: 1800.0
+    unit: kg/m3
+    doc: Graphite density.
+    source: MSRR.R1MSRRuhx.rhoGrap / SegmentedMSR.Reactors.rhoGrap1R
+  cp:
+    value: 1773.0
+    unit: J/(kg.K)
+    doc: Graphite specific heat.
+    source: MSRR.R1MSRRuhx.scpGrap / SegmentedMSR.Reactors.cPGrap1R
+coolant:
+  rho:
+    value: 2038.0
+    unit: kg/m3
+    doc: Secondary-coolant density, FLiBe 67LiF-33BeF2 (PSAR Sec. 4.1) at 495 degC (+-1 %).
+    source: "rho = 2413 - 0.4884*T[K] kg/m3 (measured on 66-34 LiF-BeF2), Cantor, ORNL-TM-4308 (1973) Table 1D; TASK-20261001-01. Formerly 1767.1 kg/m3, the nitrate solar-salt value."
+  cp:
+    value: 2390.0
+    unit: J/(kg.K)
+    doc: Secondary-coolant specific heat.
+    source: MSRR.R1MSRRuhx.scpCoolant
+  k:
+    value: 0.0
+    unit: W/(m.K)
+    doc: Secondary-coolant conductivity (off).
+    source: MSRR.R1MSRRuhx.kCoolant
+hx_tube:
+  rho:
+    value: 8774.5
+    unit: kg/m3
+    doc: Intermediate-HX tube-wall density.
+    source: MSRR.R1MSRRuhx.rhoHXtube
+  cp:
+    value: 450.0
+    unit: J/(kg.K)
+    doc: Intermediate-HX tube-wall specific heat.
+    source: MSRR.R1MSRRuhx.scpHXtube

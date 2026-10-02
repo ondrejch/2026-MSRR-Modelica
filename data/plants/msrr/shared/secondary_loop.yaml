@@ -1,0 +1,129 @@
+# Secondary (salt-free) loop: HX secondary -> pipeHXtoUHX -> UHX demand sink -> pipeUHXtoHX.
+# These numbers live on the loop models in MSRR.mo; they are NOT in SegmentedMSR.Reactors today.
+vdot_coolant:
+  value: 0.026202
+  unit: m3/s
+  doc: Nominal secondary volumetric flow at pump FF = 1 (= mdot/rho_coolant; keep consistent with materials.coolant.rho).
+  source: "PSAR coolant mass flow 53.4 kg/s (ACU MSRR PSAR Rev. 0, Table 5.3-1) / 2038 kg/m3; TASK-20261001-01. Formerly 0.030219 m3/s (53.4 kg/s at 1767.1 kg/m3)."
+hx:
+  vol_P:
+    value: 0.045379
+    unit: m3
+    doc: Intermediate HX primary volume (same as primary_loop.volumes.HXprimary).
+  vol_T:
+    value: 0.023343
+    unit: m3
+    doc: Intermediate HX tube-wall volume.
+  vol_S:
+    value: 0.055947
+    unit: m3
+    doc: Intermediate HX secondary volume.
+  hApNom:
+    value: 7.7966e+04
+    unit: W/K
+    doc: Primary-side UA at FF = 1.
+  hAsNom:
+    value: 1.8150e+04
+    unit: W/K
+    doc: Secondary-side UA at FF = 1.
+  hAExp:
+    value: 0.33
+    unit: "1"
+    doc: >
+      HX primary film exponent (hA ~ FF^hAExp). Bound by the lumped HX and, through
+      SegmentedMSR_PlantData.SecondaryLoop.hAExp, by the plant-bound SegmentedMSR HX;
+      the SegmentedMSR library default of 1/3 applies only where a rig leaves it unbound.
+    source: MSRR.Components.HeatExchanger.hAExp
+  AcShell:
+    value: 0.1298
+    unit: m2
+  AcTube:
+    value: 0.020276
+    unit: m2
+  ArShell:
+    value: 3.1165
+    unit: m2
+  L_shell:
+    value: 6.2592
+    unit: m
+  L_tube:
+    value: 12.5185
+    unit: m
+  e:
+    value: 0.01
+    unit: "1"
+  Tinf:
+    value: 500.0
+    unit: degC
+  TpIn_0:
+    value: 580.41
+    unit: degC
+  TpOut_0:
+    value: 560.0
+    unit: degC
+  TsIn_0:
+    value: 500.0
+    unit: degC
+  TsOut_0:
+    value: 507.84
+    unit: degC
+uhx:
+  vol:
+    value: 0.204183209633634
+    unit: m3
+    doc: UHX demand-node inventory.
+    source: MSRR.R1MSRRuhx uhx.vol
+  Tp_0:
+    value: 500.0
+    unit: degC
+pipes:
+  HXtoUHX:
+    vol:
+      value: 0.2526
+      unit: m3
+    volFracNode:
+      value: 0.1
+      unit: "1"
+    Ac:
+      value: 0.012673
+      unit: m2
+    L:
+      value: 19.932
+      unit: m
+    Ar:
+      value: 7.9559
+      unit: m2
+    e:
+      value: 0.08
+      unit: "1"
+    Tinf:
+      value: 644.4
+      unit: degC
+    T_0:
+      value: 507.84
+      unit: degC
+  UHXtoHX:
+    vol:
+      value: 0.4419
+      unit: m3
+    volFracNode:
+      value: 0.1
+      unit: "1"
+    Ac:
+      value: 0.012673
+      unit: m2
+    L:
+      value: 34.870
+      unit: m
+    Ar:
+      value: 13.918
+      unit: m2
+    e:
+      value: 0.08
+      unit: "1"
+    Tinf:
+      value: 644.4
+      unit: degC
+    T_0:
+      value: 500.0
+      unit: degC

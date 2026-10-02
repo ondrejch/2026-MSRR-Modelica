@@ -11,7 +11,6 @@ Usage examples:
 
 import argparse
 import os
-import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,6 +18,23 @@ try:
     from scipy.optimize import curve_fit
 except Exception:
     curve_fit = None
+
+try:
+    from ._common import (
+        clean_column_headers,
+        fit_sine_least_squares,
+        format_frequency_key,
+        read_run_params,
+        resolve_case_dir,
+    )
+except ImportError:  # direct-script execution (python plotFreqFits.py ...)
+    from _common import (
+        clean_column_headers,
+        fit_sine_least_squares,
+        format_frequency_key,
+        read_run_params,
+        resolve_case_dir,
+    )
 
 
 def parse_args():
@@ -52,7 +68,11 @@ def parse_args():
         "--ss_time",
         type=float,
         default=None,
-        help="Steady-state time override (seconds)",
+        help=(
+            "Fit-window start override in seconds (default: the settling fit "
+            "start fit_start_time recorded in run_params.txt by the runner, "
+            "else its ss_time, i.e. the collector's fit window)"
+        ),
     )
     parser.add_argument(
         "--fit_end",
@@ -67,65 +87,40 @@ def parse_args():
         "--dpi",
         type=int,
         default=600,
-        help="DPI for saved plots (default: 150)",
+        help="DPI for saved plots (default: 600)",
     )
     parser.add_argument(
         "--show",
         action="store_true",
         help="Show plots instead of saving (default saves)",
     )
+    parser.add_argument(
+        "--fit_trend",
+        action="store_true",
+        help=(
+            "Include a linear trend term in the sine fit "
+            "(default: off). Same option as collectFreqNominalParallel."
+        ),
+    )
     return parser.parse_args()
-
-
-def clean_column_headers(columns):
-    header_str = str(list(columns))
-    chars_to_remove = ['[', ']', '.', '(', ')', '_', "'"]
-    rx = '[' + re.escape(''.join(chars_to_remove)) + ']'
-    cleaned = re.sub(rx, '', header_str)
-    return cleaned.replace(" ", "").split(',')
-
-
-def read_run_params(results_dir):
-    params = {}
-    params_file = os.path.join(results_dir, "run_params.txt")
-    if os.path.exists(params_file):
-        with open(params_file, "r") as pf:
-            for line in pf:
-                parts = line.strip().split('\t')
-                if len(parts) == 2:
-                    try:
-                        params[parts[0]] = float(parts[1])
-                    except ValueError:
-                        params[parts[0]] = parts[1]
-    return params
-
-
-def fit_sine_fixed_freq(time_data, power_data, freq_point):
-    if len(time_data) < 3:
-        raise ValueError("not enough samples for sine fit")
-
-    offset = float(power_data.mean())
-    y = power_data - offset
-
-    s = np.sin(freq_point * time_data)
-    c = np.cos(freq_point * time_data)
-
-    a = (2.0 / len(y)) * (y @ s)
-    b = (2.0 / len(y)) * (y @ c)
-    amplitude = float(np.hypot(a, b))
-    phase_rad = float(np.arctan2(b, a))
-
-    fitted = offset + amplitude * np.sin(freq_point * time_data + phase_rad)
-    residuals = power_data - fitted
-    ss_res = np.sum(residuals**2)
-    ss_tot = np.sum((power_data - power_data.mean())**2)
-    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-
-    return amplitude, phase_rad, offset, r_squared, fitted
 
 
 def sine_model(t, amplitude, phase_rad, offset, freq_point):
     return offset + amplitude * np.sin(freq_point * t + phase_rad)
+
+
+def sine_model_trend(t, amplitude, phase_rad, offset, trend, freq_point, t_c):
+    """Sine + linear trend, matching the primary fit's centered design.
+
+    ``t_c`` is the midpoint of the fit window (same centering as
+    ``fit_sine_least_squares``) so the SciPy comparison fits the identical
+    model as the primary solver when ``--fit_trend`` is active.
+    """
+    return (
+        offset
+        + trend * (t - t_c)
+        + amplitude * np.sin(freq_point * t + phase_rad)
+    )
 
 
 def find_power_column(sim_data):
@@ -162,9 +157,13 @@ def list_frequencies(results_dir):
     return sorted(freqs)
 
 
-def plot_single_freq(results_dir, out_dir, freq_point, ss_time, fit_end, show, dpi):
-    work_path = os.path.join(results_dir, f"freq{freq_point:08.5f}")
-    file_prefix = f"MSRR_freq{freq_point:08.5f}"
+def plot_single_freq(results_dir, out_dir, freq_point, ss_time, fit_end,
+                     show, dpi, fit_trend=False):
+    # Canonical case-directory name (falls back to the frozen pre-fix
+    # zero-padded name of published records when the canonical one is
+    # absent); the CSV prefix always matches the resolved directory name.
+    work_path = resolve_case_dir(results_dir, freq_point)
+    file_prefix = f"MSRR_{os.path.basename(work_path)}"
     data_file = os.path.join(work_path, f"{file_prefix}_res.csv")
 
     if not os.path.exists(data_file):
@@ -206,7 +205,21 @@ def plot_single_freq(results_dir, out_dir, freq_point, ss_time, fit_end, show, d
         print(f"Insufficient samples after ss_time for freq {freq_point:.5f}")
         return False
 
-    amp, phase, offset, r2, fitted = fit_sine_fixed_freq(time_fit, power_fit, freq_point)
+    fit = fit_sine_least_squares(
+        time_fit, power_fit, freq_point, fit_trend=fit_trend
+    )
+    if not fit.ok or fit.amplitude is None or fit.phase_rad is None:
+        print(
+            f"Sine fit rejected for freq {freq_point:.5f}: "
+            f"{fit.rejection_reason or 'unknown sine-fit failure'}"
+        )
+        return False
+
+    amp = float(fit.amplitude)
+    phase = float(fit.phase_rad)
+    offset = fit.c0
+    r2 = fit.r_squared
+    fitted = fit.predict(time_fit)
 
     scipy_amp = scipy_phase = scipy_offset = None
     scipy_r2 = None
@@ -214,24 +227,35 @@ def plot_single_freq(results_dir, out_dir, freq_point, ss_time, fit_end, show, d
     scipy_fitted = None
     if curve_fit is not None:
         try:
-            p0 = [amp, phase, offset]
-            popt, pcov = curve_fit(
-                lambda t, a, ph, off: sine_model(t, a, ph, off, freq_point),
-                time_fit,
-                power_fit,
-                p0=p0,
-                maxfev=20000,
-            )
-            scipy_amp, scipy_phase, scipy_offset = popt.tolist()
-            scipy_fitted = sine_model(time_fit, scipy_amp, scipy_phase, scipy_offset, freq_point)
+            # Match the primary fit's model: with --fit_trend the comparison
+            # also carries the linear trend term (same window centering t_c).
+            if fit_trend:
+                t_c = 0.5 * (fit.fit_start + fit.fit_end)
+                model = lambda t, a, ph, off, c1: sine_model_trend(
+                    t, a, ph, off, c1, freq_point, t_c
+                )
+                p0 = [amp, phase, offset, fit.c1]
+            else:
+                model = lambda t, a, ph, off: sine_model(t, a, ph, off, freq_point)
+                p0 = [amp, phase, offset]
+            popt, pcov = curve_fit(model, time_fit, power_fit, p0=p0, maxfev=20000)
+            scipy_amp, scipy_phase, scipy_offset = popt[:3].tolist()
+            if fit_trend:
+                scipy_fitted = model(
+                    time_fit, scipy_amp, scipy_phase, scipy_offset, popt[3]
+                )
+            else:
+                scipy_fitted = sine_model(
+                    time_fit, scipy_amp, scipy_phase, scipy_offset, freq_point
+                )
             residuals = power_fit - scipy_fitted
             ss_res = np.sum(residuals**2)
             ss_tot = np.sum((power_fit - power_fit.mean())**2)
             scipy_r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
             if pcov is not None and np.all(np.isfinite(pcov)):
                 perr = np.sqrt(np.diag(pcov))
-                if len(perr) == 3:
-                    scipy_err_amp, scipy_err_phase, scipy_err_offset = perr.tolist()
+                if len(perr) >= 3:
+                    scipy_err_amp, scipy_err_phase, scipy_err_offset = perr[:3].tolist()
         except Exception as exc:
             print(f"SciPy fit failed for freq {freq_point:.5f}: {exc}")
 
@@ -280,7 +304,9 @@ def plot_single_freq(results_dir, out_dir, freq_point, ss_time, fit_end, show, d
         return True
 
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"fit_freq{freq_point:08.5f}.png")
+    out_path = os.path.join(
+        out_dir, f"fit_freq{format_frequency_key(freq_point)}.png"
+    )
     plt.savefig(out_path, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
     print(f"Saved: {out_path}")
@@ -294,7 +320,14 @@ def main():
         raise SystemExit(f"Results dir not found: {args.results_dir}")
 
     params = read_run_params(args.results_dir)
-    ss_time = args.ss_time if args.ss_time is not None else params.get("ss_time", 2000.0)
+    # Default to the collector's fit window: the settling fit start the
+    # runner records (perturbation start + discard), else the perturbation
+    # start of pre-protocol runs.
+    ss_time = (
+        args.ss_time
+        if args.ss_time is not None
+        else params.get("fit_start_time", params.get("ss_time", 2000.0))
+    )
 
     out_dir = args.out_dir
     if out_dir is None:
@@ -304,7 +337,7 @@ def main():
         raise SystemExit("Specify --freq or --all")
 
     if args.freq is not None:
-        plot_single_freq(
+        ok = plot_single_freq(
             args.results_dir,
             out_dir,
             args.freq,
@@ -312,15 +345,19 @@ def main():
             args.fit_end,
             args.show,
             args.dpi,
+            fit_trend=args.fit_trend,
         )
+        if not ok:
+            raise SystemExit(1)
         return
 
     freqs = list_frequencies(args.results_dir)
     if not freqs:
         raise SystemExit("No frequency folders found.")
 
+    failures = 0
     for fp in freqs:
-        plot_single_freq(
+        if not plot_single_freq(
             args.results_dir,
             out_dir,
             fp,
@@ -328,7 +365,11 @@ def main():
             args.fit_end,
             args.show,
             args.dpi,
-        )
+            fit_trend=args.fit_trend,
+        ):
+            failures += 1
+    if failures:
+        raise SystemExit(f"{failures} of {len(freqs)} frequencies failed to plot/fit")
 
 
 if __name__ == "__main__":

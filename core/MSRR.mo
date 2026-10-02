@@ -3,8 +3,24 @@
    HeatExchanger (MSRR-specific HX variant), MSRR1R (single-region core),
    and MSRR9R (nine-region core).  Top-level models (R1MSRRuhx, R9MSRRuhx,
    and their extends variants) assemble the complete primary + secondary loop
-   for steady-state trimming, transient, and startup simulations. */
+   for steady-state trimming, transient, and startup simulations.
+   Plant numbers bind MSRR_PlantData (generated from data/plants/msrr YAML).
+   Load order: MSRR_PlantData.mo, then SMD_MSR_Modelica.mo, then this file. */
 package MSRR
+  package Functions
+    function circulationLossPcm
+      "Steady-state circulating-fuel reactivity loss beta - sum(CG_0) [pcm] at flow fraction ff (the analytic delay-loop precursor solution used by SMD_MSR_Modelica.Nuclear.mPKE)"
+      input Real beta[:] "Delayed-neutron fractions";
+      input Real lambda[size(beta, 1)] "Precursor decay constants [1/s]";
+      input Real tauCore "Nominal in-core transit time [s]";
+      input Real tauLoop "Nominal ex-core transit time [s]";
+      input Real ff "Flow fraction (> 0)";
+      output Real lossPcm;
+    algorithm
+      lossPcm := 1e5*(sum(beta) - sum(beta[i]/(1 + (1/(lambda[i]*tauCore/ff))*(1 - exp(-lambda[i]*tauLoop/ff))) for i in 1:size(beta, 1)));
+    end circulationLossPcm;
+  end Functions;
+
   /* Core sub-models: lumped T-H fuel/graphite channel, shell-and-tube HX
      (MSRR-specific), and assembled single-region / nine-region reactor blocks. */
   package Components
@@ -18,10 +34,12 @@ package MSRR
        Fission-power split: kFN1/kFN2/kG divide the total fission source among fuel
        node 1, fuel node 2, and the graphite node (fissPowFN1/fissPowFN2/fissPowGN).
        The flat kG = 0.07 is the lumped dissertation assumption (93%/7% fuel/graphite
-       split). The nine-region models pass region-resolved shares instead,
-       kG[i] = kHT1[i] + kHT2[i], whose RAW total ~0.060769 is intentionally never
-       renormalized to the thesis 7% (see the qModChain9R provenance note and the
-       data-derived normalizer fSaltNormalizer9R in SegmentedMSR.Reactors). */
+        split). The nine-region models pass region-resolved shares instead,
+        kG[i] = kHT1[i] + kHT2[i], whose total is 0.060729586498348 after the
+        2026-09-20 B3 Sigma=1 renormalization (the raw MSRR.R9MSRRuhx family was
+        ~0.060769) and is intentionally never forced to the thesis 7% (see the
+        qModChain9R provenance note and the data-derived normalizer
+        fSaltNormalizer9R in SegmentedMSR.Reactors). */
     model FuelChannel
       parameter SMD_MSR_Modelica.Units.Volume vol_FN1;
       parameter SMD_MSR_Modelica.Units.Volume vol_FN2;
@@ -353,13 +371,21 @@ package MSRR
         "HeatExchanger: secondaryFF.FF must be >= 0; reverse flow unsupported");
       mDotP = VdotPnom*rhoP*primaryFF.FF;
       mDotS = VdotSnom*rhoS*secondaryFF.FF;
+      // Per-node film coefficients (physics review 2026-09-27): hApNom and
+      // hAsNom are SIDE TOTALS (their series combination 1/(1/hApNom +
+      // 1/hAsNom) = 1.47e4 W/K; the deck/article quote UA_hx = 1.52e4 W/K),
+      // each spread over the four nodes of its side - the
+      // node equations previously applied the full side total at every node,
+      // 4x the documented UA (secondary at 537/545 degC instead of the
+      // 500/508 degC design). SMD_MSR_Modelica.HeatTransport.HeatExchanger
+      // already divides by 4.
       // Primary hA: FF^hAExp (default 0.33) power-law scaled by the nominal
       // primary coefficient. Evaluate on a nonnegative proxy so the guard above,
       // not an invalid-root race, aborts reverse-flow runs.
-      hApn = hApNom*noEvent(max(primaryFF.FF, 0.0))^(hAExp);
+      hApn = (hApNom/4)*noEvent(max(primaryFF.FF, 0.0))^(hAExp);
       // Secondary hA: 99% scales linearly with FF; 1% floor prevents singularity
       // at zero flow.
-      hAsn = (0.99*secondaryFF.FF + 0.01)*hAsNom;
+      hAsn = (0.99*secondaryFF.FF + 0.01)*(hAsNom/4);
       volPN = vol_P/4;
       volTN = vol_T/2;
       volSN = vol_S/4;
@@ -387,11 +413,16 @@ package MSRR
       flowPowSN2 = mDotS*cP_S*(T_SN1 - T_SN2);
       flowPowSN3 = mDotS*cP_S*(T_SN2 - T_SN3);
       flowPowSN4 = mDotS*cP_S*(T_SN3 - T_out_sFluid.T);
-      condPowPN1 = ((Kp*AcShell)/LpN)*(T_in_pFluid.T - T_PN1);
+      // Inlet faces are adiabatic for axial conduction: the TempIn signal
+      // connectors carry no heat flow, so conduction from the upstream
+      // component's outlet temperature into node 1 would be credited here
+      // without being debited upstream (energy created or destroyed whenever
+      // Kp/Ks > 0; physics review 2026-09-27). Interior faces stay paired.
+      condPowPN1 = 0;
       condPowPN2 = ((Kp*AcShell)/LpN)*(T_PN1 - T_PN2);
       condPowPN3 = ((Kp*AcShell)/LpN)*(T_PN2 - T_PN3);
       condPowPN4 = ((Kp*AcShell)/LpN)*(T_PN3 - T_out_pFluid.T);
-      condPowSN1 = ((Ks*AcTube)/LsN)*(T_in_sFluid.T - T_SN1);
+      condPowSN1 = 0;
       condPowSN2 = ((Ks*AcTube)/LsN)*(T_SN1 - T_SN2);
       condPowSN3 = ((Ks*AcTube)/LsN)*(T_SN2 - T_SN3);
       condPowSN4 = ((Ks*AcTube)/LsN)*(T_SN3 - T_out_sFluid.T);
@@ -418,16 +449,19 @@ package MSRR
       decayPowPN2 = P_decay.Q*volPN;
       decayPowPN3 = P_decay.Q*volPN;
       decayPowPN4 = P_decay.Q*volPN;
-      powPN1 = flowPowPN1 + condPowPN1 - convPowPN1 + radPowPN1 + decayPowPN1;
-      powPN2 = flowPowPN2 + condPowPN2 - convPowPN2 + radPowPN2 + decayPowPN2;
-      powPN3 = flowPowPN3 + condPowPN3 - convPowPN3 + radPowPN3 + decayPowPN3;
+      // Axial conduction is inflow-minus-outflow (matching FuelChannel/Pipe):
+      // each node also subtracts the heat it conducts to the next node
+      // downstream, so interior conduction faces create no net energy.
+      powPN1 = flowPowPN1 + condPowPN1 - condPowPN2 - convPowPN1 + radPowPN1 + decayPowPN1;
+      powPN2 = flowPowPN2 + condPowPN2 - condPowPN3 - convPowPN2 + radPowPN2 + decayPowPN2;
+      powPN3 = flowPowPN3 + condPowPN3 - condPowPN4 - convPowPN3 + radPowPN3 + decayPowPN3;
       powPN4 = flowPowPN4 + condPowPN4 - convPowPN4 + radPowPN4 + decayPowPN4;
       powTN1 = convPowPN1 + convPowPN2 - convPowSN3 - convPowSN4;
       powTN2 = convPowPN3 + convPowPN4 - convPowSN1 - convPowSN2;
-      powSN1 = flowPowSN1 + convPowSN1;
-      powSN2 = flowPowSN2 + convPowSN2;
-      powSN3 = flowPowSN3 + convPowSN3;
-      powSN4 = flowPowSN4 + convPowSN4;
+      powSN1 = flowPowSN1 + condPowSN1 - condPowSN2 + convPowSN1;
+      powSN2 = flowPowSN2 + condPowSN2 - condPowSN3 + convPowSN2;
+      powSN3 = flowPowSN3 + condPowSN3 - condPowSN4 + convPowSN3;
+      powSN4 = flowPowSN4 + condPowSN4 + convPowSN4;
       annotation(
         Diagram(graphics = {Rectangle(origin = {30.2864, 0.0340212}, extent = {{-149.242, 59.993}, {149.242, -59.993}}), Rectangle(origin = {-60, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {120, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {0, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-59.95, -29.61}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.63, -9.61}, {19.63, 9.61}}), Rectangle(origin = {-0.12, -29.82}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.88, 9.82}, {19.88, -9.82}}), Rectangle(origin = {59.8, -29.85}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.8, 9.85}, {19.8, -9.85}}), Rectangle(origin = {119.85, -29.89}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.85, 9.89}, {19.85, -9.89}}), Rectangle(origin = {89.92, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Rectangle(origin = {60, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-30.08, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Text(origin = {150, 49}, extent = {{-28, 9}, {28, -9}}, textString = "HX")}, coordinateSystem(extent = {{-120, 60}, {180, -60}})),
         Icon(graphics = {Rectangle(origin = {30.29, 0.03}, lineThickness = 2, extent = {{-149.24, 59.99}, {149.24, -59.99}}), Rectangle(origin = {-30.08, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Rectangle(origin = {60, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {89.92, -1.05}, lineColor = {136, 138, 133}, fillColor = {136, 138, 133}, fillPattern = FillPattern.Solid, extent = {{-49.92, 8.83}, {49.92, -8.83}}), Rectangle(origin = {-0.12, -29.82}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.88, 9.82}, {19.88, -9.82}}), Rectangle(origin = {0, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {-60, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {120, 30}, lineColor = {20, 36, 248}, fillColor = {20, 36, 248}, fillPattern = FillPattern.Solid, extent = {{-20, 10}, {20, -10}}), Rectangle(origin = {59.8, -29.85}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.8, 9.85}, {19.8, -9.85}}), Rectangle(origin = {119.85, -29.89}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.85, 9.89}, {19.85, -9.89}}), Rectangle(origin = {-59.95, -29.61}, lineColor = {239, 41, 41}, fillColor = {239, 41, 41}, fillPattern = FillPattern.Solid, extent = {{-19.63, -9.61}, {19.63, 9.61}}), Text(origin = {150, 49}, extent = {{-28, 9}, {28, -9}}, textString = "HX")}, coordinateSystem(extent = {{-120, 60}, {180, -60}})));
@@ -450,16 +484,16 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.DelayedNeutronFrac beta[numGroups];
       parameter SMD_MSR_Modelica.Units.NeutronGenerationTime LAMBDA;
       parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation n_0;
-      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloor = 1e-9
+      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloor = MSRR_PlantData.Kinetics.nFloor
         "Numerical neutron floor passed to mPKE";
-      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloorDuringForcing = 1e-9
+      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloorDuringForcing = MSRR_PlantData.Kinetics.nFloor
         "Optional forcing-window neutron floor passed to mPKE";
       parameter SMD_MSR_Modelica.Units.InitiationTime nFloorSwitchTime = 1e100
         "Time to switch from nFloor to nFloorDuringForcing in mPKE";
-      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = 34.8025
-        "Nominal core fuel transit time passed to mPKE [s]";
-      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = 8.7006
-        "Nominal loop fuel transit time passed to mPKE [s]";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = (sum(volF1) + sum(volF2))/volDotFuel
+        "Nominal core fuel transit time passed to mPKE [s]: the 9R mesh's own in-core fuel volume over the nominal flow (41.01 s at the PSAR-basis fuel density, TASK-20261001-01; physics review 2026-09-27 B2 - formerly the 1R 0.4 m3 convention MSRR_PlantData.Kinetics.nomTauCore)";
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = (MSRR_PlantData.totalFuelVol - (sum(volF1) + sum(volF2)))/volDotFuel
+        "Nominal loop fuel transit time passed to mPKE [s]: the ex-core remainder of the total fuel inventory, upper plenum included (13.38 s at the PSAR-basis fuel density, TASK-20261001-01; 10.70 s before; formerly the 1R 0.1 m3 convention)";
       parameter SMD_MSR_Modelica.Units.TemperatureReactivityCoef aF;
       parameter SMD_MSR_Modelica.Units.TemperatureReactivityCoef aG;
       parameter SMD_MSR_Modelica.Units.Density rho_fuel;
@@ -471,7 +505,12 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.Volume volF1[9];
       parameter SMD_MSR_Modelica.Units.Volume volF2[9];
       parameter SMD_MSR_Modelica.Units.Volume volG[9];
-      parameter SMD_MSR_Modelica.Units.Volume volUP;
+      parameter SMD_MSR_Modelica.Units.Volume volUP = MSRR_PlantData.Core9R.volUpperPlenum
+        "Upper-plenum mixing volume, a fixed geometric volume from the plant
+         data (TASK-20261001-01): the 9R in-core fuel inventory is the regions
+         plus this plenum, the 400 L vessel. It was formerly volDotFuel x a
+         2 s residence time (rev021-B5), which would have shrunk the plenum
+         when the fuel density, and with it the volumetric flow, changed";
       parameter SMD_MSR_Modelica.Units.Convection hA[9];
       parameter SMD_MSR_Modelica.Units.VolumeImportance kFN1[9];
       parameter SMD_MSR_Modelica.Units.VolumeImportance kFN2[9];
@@ -496,14 +535,17 @@ package MSRR
       parameter Boolean EnableRad;
       parameter SMD_MSR_Modelica.Units.Emissivity e;
       parameter SMD_MSR_Modelica.Units.Temperature T_inf;
+      parameter SMD_MSR_Modelica.Units.Area mixingPotAc = MSRR_PlantData.Core9R.mixingPotAc;
+      parameter SMD_MSR_Modelica.Units.Length mixingPotL = MSRR_PlantData.Core9R.mixingPotL;
+      parameter SMD_MSR_Modelica.Units.Area mixingPotAr = MSRR_PlantData.Core9R.mixingPotAr;
       parameter Integer numSourceSteps(min = 1) = 1;
       parameter SMD_MSR_Modelica.Units.InitiationTime sourceStepTime[numSourceSteps] = {0};
       parameter SMD_MSR_Modelica.Units.NeutronEmissionRate sourceAmplitude[numSourceSteps] = {0};
-      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = nomTauLoop, nomTauCore = nomTauCore) annotation(
+      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = nomTauLoop, nomTauCore = nomTauCore, nu = MSRR_PlantData.Kinetics.nu, nominalPower = MSRR_PlantData.nominalPower, energyPerFission = MSRR_PlantData.Kinetics.energyPerFission, sourceEffectiveness = MSRR_PlantData.Kinetics.sourceEffectiveness) annotation(
         Placement(transformation(origin = {174.6, 322.2}, extent = {{-63.6, -63.6}, {42.4, 42.4}}, rotation = -90)));
-      SMD_MSR_Modelica.Nuclear.PowerBlock powerblock(P(displayUnit = "W") = 1E6, TotalFuelVol = 0.5) annotation(
+      SMD_MSR_Modelica.Nuclear.PowerBlock powerblock(P(displayUnit = "W") = MSRR_PlantData.nominalPower, TotalFuelVol = MSRR_PlantData.totalFuelVol) annotation(
         Placement(transformation(origin = {-92.4, 330.2}, extent = {{29.6, -59.2}, {-44.4, 14.8}}, rotation = -90)));
-      SMD_MSR_Modelica.Nuclear.DecayHeat decayHeat(numGroups = 3, DHYG = {2.3751e-03, 8.7763e-05, 1.9596e-06}, DHlamG = {0.09453, 0.004420, 8.6098E-5}) annotation(
+      SMD_MSR_Modelica.Nuclear.DecayHeat decayHeat(numGroups = MSRR_PlantData.DecayHeat.numGroups, DHYG = MSRR_PlantData.DecayHeat.DHYG, DHlamG = MSRR_PlantData.DecayHeat.DHlamG) annotation(
         Placement(transformation(origin = {-18.4, 480.4}, extent = {{-29.6, 29.6}, {44.4, -44.4}}, rotation = 90)));
       SMD_MSR_Modelica.Signals.TimeDependent.Stepper sourceStepper(numSteps = numSourceSteps, stepTime = sourceStepTime, amplitude = sourceAmplitude) annotation(
         Placement(transformation(origin = {390, 430}, extent = {{-27, -27}, {27, 27}}, rotation = 90)));
@@ -547,7 +589,7 @@ package MSRR
         Placement(transformation(origin = {516.544, -5.0561}, extent = {{-37.5439, 56.3158}, {56.3158, -37.5439}})));
       SMD_MSR_Modelica.HeatTransport.FlowDistributor flowDistributor(numOutput = 4, freeConvectionFF = freeConvFF, coastDownK = regionCoastDownK, regionTripTime = regionTripTime) annotation(
         Placement(transformation(origin = {395.602, -954.4}, extent = {{30.3983, 91.195}, {-91.195, -30.3983}})));
-      SMD_MSR_Modelica.HeatTransport.MixingPot upperPlenum(numStreams = 4, vol = volUP, VdotNom = volDotFuel, flowFractionsNom = flowFracRegions, rho = rho_fuel, Cp = cP_fuel, K = kFuel, Ac = 1.6118, L = 0.093874, Ar = 0.4225, e = e, T_0 = Tmix_0, Tinf = T_inf, EnableRad = EnableRad) annotation(
+      SMD_MSR_Modelica.HeatTransport.MixingPot upperPlenum(numStreams = 4, vol = volUP, VdotNom = volDotFuel, flowFractionsNom = flowFracRegions, rho = rho_fuel, Cp = cP_fuel, K = kFuel, Ac = mixingPotAc, L = mixingPotL, Ar = mixingPotAr, e = e, T_0 = Tmix_0, Tinf = T_inf, EnableRad = EnableRad) annotation(
         Placement(transformation(origin = {450.182, 131.988}, extent = {{-51.443, 38.5821}, {25.7215, -38.5821}}, rotation = 90)));
       input SMD_MSR_Modelica.PortsConnectors.FlowFractionIn flowFracIn annotation(
         Placement(transformation(origin = {329, -1071}, extent = {{-37, -37}, {37, 37}}), iconTransformation(origin = {-40, 40}, extent = {{-18, -18}, {18, 18}})));
@@ -742,6 +784,16 @@ package MSRR
         Icon(coordinateSystem(extent = {{-60, 60}, {60, -60}}), graphics = {Rectangle(lineThickness = 1, extent = {{-60, 60}, {60, -60}}), Text(origin = {3, -1}, extent = {{-53, 31}, {53, -31}}, textString = "Reactor")}));
     end MSRR9R;
 
+    /* rev021-B7 (TASK-20260920-01 P9): XENON/SAMARIUM POISONING IS NOT
+       INTEGRATED in either production assembly - neither MSRR1R nor MSRR9R
+       instantiates or connects SMD_MSR_Modelica.Nuclear.Poisons (the
+       135Te-I-Xe / 149Pm-Sm chain model exists in the library with
+       enableFeedback = false hard-wiring poisonReactivity.rho = 0, but it
+       has NO instance here), so Xe/Sm feedback cannot be enabled in 1R/9R
+       lumped runs at all. The SegmentedMSR package carries its own opt-in
+       HomogeneousPoisons model (default off) for the segmented cores.
+       Wiring the lumped Poisons model into these assemblies is an owner
+       decision; do not enable Xe/Sm in production runs until then. */
     /* Single-region (lumped-core) reactor model.
        Combines one FuelChannel, mPKE, ReactivityFeedback, PowerBlock, and DecayHeat
        into a compact assembly. Used when spatial power distribution is not needed
@@ -754,15 +806,15 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.TemperatureReactivityCoef a_F;
       parameter SMD_MSR_Modelica.Units.TemperatureReactivityCoef a_G;
       parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation n_0;
-      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloor = 1e-9
+      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloor = MSRR_PlantData.Kinetics.nFloor
         "Numerical neutron floor passed to mPKE";
-      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloorDuringForcing = 1e-9
+      parameter SMD_MSR_Modelica.Units.NominalNeutronPopulation nFloorDuringForcing = MSRR_PlantData.Kinetics.nFloor
         "Optional forcing-window neutron floor passed to mPKE";
       parameter SMD_MSR_Modelica.Units.InitiationTime nFloorSwitchTime = 1e100
         "Time to switch from nFloor to nFloorDuringForcing in mPKE";
-      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = 34.8025
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauCore = MSRR_PlantData.Kinetics.nomTauCore
         "Nominal core fuel transit time passed to mPKE [s]";
-      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = 8.7006
+      parameter SMD_MSR_Modelica.Units.ResidenceTime nomTauLoop = MSRR_PlantData.Kinetics.nomTauLoop
         "Nominal loop fuel transit time passed to mPKE [s]";
       parameter SMD_MSR_Modelica.Units.Density rho_fuel;
       parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity cP_fuel;
@@ -774,20 +826,51 @@ package MSRR
       parameter SMD_MSR_Modelica.Units.Temperature TF2_0;
       parameter SMD_MSR_Modelica.Units.Temperature TG_0;
       parameter Boolean EnableRad;
-      parameter SMD_MSR_Modelica.Units.Temperature Tinf; 
+      parameter SMD_MSR_Modelica.Units.Temperature Tinf;
+      parameter SMD_MSR_Modelica.Units.Volume vol_FN1 = MSRR_PlantData.Core1R.cellVol[1];
+      parameter SMD_MSR_Modelica.Units.Volume vol_FN2 = MSRR_PlantData.Core1R.cellVol[2];
+      parameter SMD_MSR_Modelica.Units.Volume vol_GN = MSRR_PlantData.Core1R.volGN;
+      parameter SMD_MSR_Modelica.Units.VolumeImportance kFN1 = MSRR_PlantData.Core1R.qFiss[1];
+      parameter SMD_MSR_Modelica.Units.VolumeImportance kFN2 = MSRR_PlantData.Core1R.qFiss[2];
+      parameter SMD_MSR_Modelica.Units.VolumeImportance kG = MSRR_PlantData.Core1R.kG;
+      parameter SMD_MSR_Modelica.Units.Convection hAnom = MSRR_PlantData.Core1R.hAnom;
+      parameter SMD_MSR_Modelica.Units.HeatTransferFraction kHT_FN1 = MSRR_PlantData.Core1R.kHT[1];
+      parameter SMD_MSR_Modelica.Units.HeatTransferFraction kHT_FN2 = MSRR_PlantData.Core1R.kHT[2];
+      parameter SMD_MSR_Modelica.Units.FlowFraction regionFlowFrac = MSRR_PlantData.Core1R.flowFrac;
+      parameter SMD_MSR_Modelica.Units.Area Ac = MSRR_PlantData.Core1R.Ac;
+      parameter SMD_MSR_Modelica.Units.Length LF1 = MSRR_PlantData.Core1R.LF1;
+      parameter SMD_MSR_Modelica.Units.Length LF2 = MSRR_PlantData.Core1R.LF2;
+      parameter SMD_MSR_Modelica.Units.Area ArF1 = MSRR_PlantData.Core1R.ArF1;
+      parameter SMD_MSR_Modelica.Units.Area ArF2 = MSRR_PlantData.Core1R.ArF2;
+      parameter SMD_MSR_Modelica.Units.Emissivity e = MSRR_PlantData.Core1R.e;
+      // rev021-B6 (TASK-20260920-01 P9): this wrapper previously declared a
+      // dead `parameter Real hAExp = 0.33` copy - nothing read it (the fuel
+      // channel below binds its own component-level literal default), so
+      // setting it silently did nothing; the copy is DELETED rather than
+      // passed through to the channel because omc 1.27 demotes parameters to
+      // non-overridable calculatedParameters when their binding is not a
+      // plain constant - a `hAExp = hAExp` modifier on the instantiation
+      // would re-bind the channel parameter non-literally and silently
+      // disable -override=core1R.fuelchannel.hAExp. The PlantData entry
+      // (MSRR_PlantData.Core1R.hAExp, 0.33) stays a documentation copy of
+      // the channel default; sensitivity overrides must target
+      // core1R.fuelchannel.hAExp.
+      parameter Real IF1 = MSRR_PlantData.Core1R.IF1;
+      parameter Real IF2 = MSRR_PlantData.Core1R.IF2;
+      parameter Real IG = MSRR_PlantData.Core1R.IG;
       parameter Integer numSourceSteps(min = 1) = 1;
       parameter SMD_MSR_Modelica.Units.InitiationTime sourceStepTime[numSourceSteps] = {0};
       parameter SMD_MSR_Modelica.Units.NeutronEmissionRate sourceAmplitude[numSourceSteps] = {0};
       
-      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = nomTauLoop, nomTauCore = nomTauCore) annotation(
+      SMD_MSR_Modelica.Nuclear.mPKE mpke(numGroups = numGroups, lambda = lambda, beta = beta, LAMBDA = LAMBDA, n_0 = n_0, nFloor = nFloor, nFloorDuringForcing = nFloorDuringForcing, nFloorSwitchTime = nFloorSwitchTime, nomTauLoop = nomTauLoop, nomTauCore = nomTauCore, nu = MSRR_PlantData.Kinetics.nu, nominalPower = MSRR_PlantData.nominalPower, energyPerFission = MSRR_PlantData.Kinetics.energyPerFission, sourceEffectiveness = MSRR_PlantData.Kinetics.sourceEffectiveness) annotation(
         Placement(transformation(origin = {-205.6, 84.4}, extent = {{-20.4, -20.4}, {13.6, 13.6}})));
-      MSRR.Components.FuelChannel fuelchannel(rho_fuel = rho_fuel, rho_grap = rho_grap, cP_fuel = cP_fuel, cP_grap = cP_grap, Vdot_fuelNom = volDotFuel, kFN1 = 0.4650, kFN2 = 0.4650, kG = 0.07, kHT_FN1 = 0.5, kHT_FN2 = 0.5, TF1_0 = TF1_0, TF2_0 = TF2_0, TG_0 = TG_0, regionFlowFrac = 1, KF = kFuel, Ac = 1.5882, LF1 = 0.7875, LF2 = 0.7875, OuterRegion = EnableRad, ArF1 = 3.5172, ArF2 = 3.5172, e = 0.080000, Tinf = Tinf, vol_FN1 = 0.2, vol_FN2 = 0.2, vol_GN = 1.758, hAnom = 2.4916e+04) annotation(
+      MSRR.Components.FuelChannel fuelchannel(rho_fuel = rho_fuel, rho_grap = rho_grap, cP_fuel = cP_fuel, cP_grap = cP_grap, Vdot_fuelNom = volDotFuel, kFN1 = kFN1, kFN2 = kFN2, kG = kG, kHT_FN1 = kHT_FN1, kHT_FN2 = kHT_FN2, TF1_0 = TF1_0, TF2_0 = TF2_0, TG_0 = TG_0, regionFlowFrac = regionFlowFrac, KF = kFuel, Ac = Ac, LF1 = LF1, LF2 = LF2, OuterRegion = EnableRad, ArF1 = ArF1, ArF2 = ArF2, e = e, Tinf = Tinf, vol_FN1 = vol_FN1, vol_FN2 = vol_FN2, vol_GN = vol_GN, hAnom = hAnom) annotation(
         Placement(transformation(origin = {-80.3333, -106.278}, extent = {{-67.2222, -67.2222}, {40.3333, 53.7778}})));
-      SMD_MSR_Modelica.Nuclear.ReactivityFeedback react(FuelTempSetPointNode1 = TF1_0, FuelTempSetPointNode2 = TF2_0, GrapTempSetPoint = TG_0, IF1 = 0.5, IF2 = 0.5, IG = 1, a_F = a_F, a_G = a_G) annotation(
+      SMD_MSR_Modelica.Nuclear.ReactivityFeedback react(FuelTempSetPointNode1 = TF1_0, FuelTempSetPointNode2 = TF2_0, GrapTempSetPoint = TG_0, IF1 = IF1, IF2 = IF2, IG = IG, a_F = a_F, a_G = a_G) annotation(
         Placement(transformation(origin = {1.69334, 61.8548}, extent = {{-22.2896, 14.8598}, {14.8598, -22.2896}})));
-      SMD_MSR_Modelica.Nuclear.PowerBlock powerblock(P(displayUnit = "W") = 1E6, TotalFuelVol = 0.5) annotation(
+      SMD_MSR_Modelica.Nuclear.PowerBlock powerblock(P(displayUnit = "W") = MSRR_PlantData.nominalPower, TotalFuelVol = MSRR_PlantData.totalFuelVol) annotation(
         Placement(transformation(origin = {-201.2, 5.6}, extent = {{-12.8, -25.6}, {19.2, 6.4}})));
-      SMD_MSR_Modelica.Nuclear.DecayHeat decayHeat(numGroups = 3, DHYG = {2.3751e-03, 8.7763e-05, 1.9596e-06}, DHlamG = {0.09453, 0.004420, 8.6098E-5}) annotation(
+      SMD_MSR_Modelica.Nuclear.DecayHeat decayHeat(numGroups = MSRR_PlantData.DecayHeat.numGroups, DHYG = MSRR_PlantData.DecayHeat.DHYG, DHlamG = MSRR_PlantData.DecayHeat.DHlamG) annotation(
         Placement(transformation(origin = {-140, 18}, extent = {{-16, -16}, {24, 24}})));
       SMD_MSR_Modelica.Signals.TimeDependent.Stepper sourceStepper(numSteps = numSourceSteps, stepTime = sourceStepTime, amplitude = sourceAmplitude) annotation(
         Placement(transformation(origin = {-293, 79}, extent = {{-27, -27}, {27, 27}})));
@@ -849,60 +932,60 @@ package MSRR
      Secondary loop: HX → pipeHXtoUHX → UHX → pipeUHXtoHX → HX.
      External reactivity (step + sinusoidal) is summed and injected into core kinetics. */
   model R1MSRRuhx
-    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-    parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-    parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-    parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-    parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-    parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-    parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+    parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+    parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+    parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+    parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+    parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+    parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
     parameter SMD_MSR_Modelica.Units.NominalPower powerLevel = 1 "Relative reactor/UHX demand level";
     parameter Real perturbationAmplitudePcm = 0 "Sinusoidal reactivity perturbation amplitude [pcm]";
     parameter SMD_MSR_Modelica.Units.AngularFrequency perturbationOmega = 0.01 "Sinusoidal perturbation frequency [rad/s]";
     parameter SMD_MSR_Modelica.Units.InitiationTime perturbationStartTime = 2000 "Sinusoidal perturbation start time [s]";
     parameter SMD_MSR_Modelica.Units.InitiationTime forcingTimeStep = 0
       "If >0, inject periodic time events after perturbationStartTime to shorten forcing-window time steps";
-    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode1 = 570;
-    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode2 = 580.4100;
-    parameter SMD_MSR_Modelica.Units.Temperature graphiteTempSetPoint = 570.0000028;
+    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode1 = MSRR_PlantData.Core1R.TF1;
+    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode2 = MSRR_PlantData.Core1R.TF2;
+    parameter SMD_MSR_Modelica.Units.Temperature graphiteTempSetPoint = MSRR_PlantData.Core1R.TG;
     parameter Integer numUhxSteps(min = 1) = 1;
     parameter SMD_MSR_Modelica.Units.InitiationTime uhxDemandStepTime[numUhxSteps] = {0};
-    parameter SMD_MSR_Modelica.Units.Power uhxDemandAmplitude[numUhxSteps] = {powerLevel*1E6};
+    parameter SMD_MSR_Modelica.Units.Power uhxDemandAmplitude[numUhxSteps] = {powerLevel*MSRR_PlantData.nominalPower};
     parameter Integer numExternalReactivitySteps(min = 1) = 2;
     parameter SMD_MSR_Modelica.Units.InitiationTime externalReactivityStepTime[numExternalReactivitySteps] = {0, 4000};
     parameter Real externalReactivityAmplitude[numExternalReactivitySteps] = {0, 0};
     parameter Boolean heatLossEnabled = false
       "Enable radiative heat loss in core (startup only)";
-    parameter SMD_MSR_Modelica.Units.Temperature heatLossTinf = 550
+    parameter SMD_MSR_Modelica.Units.Temperature heatLossTinf = MSRR_PlantData.Core1R.heatLossTinf
       "Ambient trench temperature when heaters are off (thesis assumption)";
-    MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+    MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
       Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-    SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+    SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
       Placement(transformation(origin = {-2.538, -94.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
       Placement(transformation(origin = {-132.8, -65.0667}, extent = {{-27.2, -9.06667}, {18.1333, -36.2667}}, rotation = -0)));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
       Placement(transformation(origin = {67.2, -64.2667}, extent = {{-27.2, -9.06667}, {18.1333, -36.2667}})));
-    SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+    SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
       Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
       Placement(transformation(origin = {-163.6, 15.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
       Placement(transformation(origin = {-320.4, -151.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
       Placement(transformation(origin = {-398.4, 13.2}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-    MSRR.Components.MSRR1R core1R(numGroups = 6, EnableRad = heatLossEnabled, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = powerLevel, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = heatLossTinf, kFuel = kFuel, TF1_0 = fuelTempSetPointNode1, TF2_0 = fuelTempSetPointNode2, TG_0 = graphiteTempSetPoint) annotation(
+    MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = heatLossEnabled, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = powerLevel, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = heatLossTinf, kFuel = kFuel, TF1_0 = fuelTempSetPointNode1, TF2_0 = fuelTempSetPointNode2, TG_0 = graphiteTempSetPoint) annotation(
       Placement(transformation(origin = {-643.667, -81}, extent = {{-60, -60}, {60, 60}})));
     SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
       Placement(transformation(origin = {-127, -209}, extent = {{-27, -27}, {27, 27}})));
-    SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
       Placement(transformation(origin = {-722, 138}, extent = {{-24, -32}, {24, 16}})));
-    SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
       Placement(transformation(origin = {-111, -19.333}, extent = {{-23, -30.6667}, {23, 15.3333}})));
     SMD_MSR_Modelica.Signals.TimeDependent.Stepper uhxDemand(numSteps = numUhxSteps, stepTime = uhxDemandStepTime, amplitude = uhxDemandAmplitude) annotation(
       Placement(transformation(origin = {-53, -231}, extent = {{-27, -27}, {27, 27}})));
@@ -989,61 +1072,72 @@ package MSRR
   /* Full primary-and-secondary loop with nine-region core (MSRR9R).
      Identical loop topology to R1MSRRuhx; only the core block differs. */
   model R9MSRRuhx
-    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-    parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-    parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-    parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-    parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-    parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-    parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+    parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+    parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+    parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+    parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+    parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+    parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+    parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+    parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
     parameter SMD_MSR_Modelica.Units.NominalPower powerLevel = 1 "Relative reactor/UHX demand level";
     parameter Real perturbationAmplitudePcm = 0 "Sinusoidal reactivity perturbation amplitude [pcm]";
     parameter SMD_MSR_Modelica.Units.AngularFrequency perturbationOmega = 0.01 "Sinusoidal perturbation frequency [rad/s]";
     parameter SMD_MSR_Modelica.Units.InitiationTime perturbationStartTime = 2000 "Sinusoidal perturbation start time [s]";
     parameter SMD_MSR_Modelica.Units.InitiationTime forcingTimeStep = 0
       "If >0, inject periodic time events after perturbationStartTime to shorten forcing-window time steps";
-    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode1 = 566.94;
-    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode2 = 576.02;
-    parameter SMD_MSR_Modelica.Units.Temperature graphiteTempSetPoint = 570.89;
-    parameter SMD_MSR_Modelica.Units.Temperature TF1_0_regions[9] = {fuelTempSetPointNode1, 562.89, 584.55, 609.63, 561.59, 574.98, 590.48, 560.60, 565.19};
-    parameter SMD_MSR_Modelica.Units.Temperature TF2_0_regions[9] = {fuelTempSetPointNode2, 572.69, 597.23, 615.83, 567.64, 582.82, 594.30, 562.63, 566.46};
-    parameter SMD_MSR_Modelica.Units.Temperature TG_0_regions[9] = {graphiteTempSetPoint, 566.21, 591.18, 613.04, 564.19, 580.21, 593.17, 562.06, 566.66};
+    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode1 = MSRR_PlantData.Core9R.TF1;
+    parameter SMD_MSR_Modelica.Units.Temperature fuelTempSetPointNode2 = MSRR_PlantData.Core9R.TF2;
+    parameter SMD_MSR_Modelica.Units.Temperature graphiteTempSetPoint = MSRR_PlantData.Core9R.TG;
+    // Region trims (physics review 2026-09-27 B1.3): all nine elements bind
+    // the PlantData region profile directly, so EVERY element - region 1
+    // included - is overridable from a setpoint table. The former
+    // cat(1, {fuelTempSetPointNode1}, ...[2:9]) binding made the arrays
+    // non-overridable in OMC ("not possible to override"), so region 1
+    // silently took the shell scalars (the table writes the core AVERAGE
+    // there, +3.9/+5.8/+2.8 K off region 1's own trim). The shell scalars
+    // fuelTempSetPointNode1/fuelTempSetPointNode2/graphiteTempSetPoint no
+    // longer feed the 9R core; they remain as table-compatible inputs.
+    parameter SMD_MSR_Modelica.Units.Temperature TF1_0_regions[9] = MSRR_PlantData.Core9R.TF1_0_regions;
+    parameter SMD_MSR_Modelica.Units.Temperature TF2_0_regions[9] = MSRR_PlantData.Core9R.TF2_0_regions;
+    parameter SMD_MSR_Modelica.Units.Temperature TG_0_regions[9] = MSRR_PlantData.Core9R.TG_0_regions;
+    parameter SMD_MSR_Modelica.Units.Temperature Tmix_0 = MSRR_PlantData.Core9R.Tmix_0
+      "Upper-plenum initial temperature (physics review 2026-09-27 B1.2: the setpoint tables' Tmix_0 column targets this top-level name; it was previously bound inside msre9r to the PlantData constant, so every table override was 'not found' and the plenum started at 580.41 degC)";
     parameter Integer numUhxSteps(min = 1) = 1;
     parameter SMD_MSR_Modelica.Units.InitiationTime uhxDemandStepTime[numUhxSteps] = {0};
-    parameter SMD_MSR_Modelica.Units.Power uhxDemandAmplitude[numUhxSteps] = {powerLevel*1E6};
+    parameter SMD_MSR_Modelica.Units.Power uhxDemandAmplitude[numUhxSteps] = {powerLevel*MSRR_PlantData.nominalPower};
     parameter Integer numExternalReactivitySteps(min = 1) = 2;
     parameter SMD_MSR_Modelica.Units.InitiationTime externalReactivityStepTime[numExternalReactivitySteps] = {0, 4000};
     parameter Real externalReactivityAmplitude[numExternalReactivitySteps] = {0, 0};
     parameter Boolean heatLossEnabled = false
       "Enable radiative heat loss in core (startup only)";
-    parameter SMD_MSR_Modelica.Units.Temperature heatLossTinf = 550
+    parameter SMD_MSR_Modelica.Units.Temperature heatLossTinf = MSRR_PlantData.Core1R.heatLossTinf
       "Ambient trench temperature when heaters are off (thesis assumption)";
-    MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+    MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
       Placement(transformation(origin = {6.7, 27.2}, extent = {{-76, -38}, {114, 38}})));
-    SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+    SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
       Placement(transformation(origin = {64.462, -208.346}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
       Placement(transformation(origin = {-47.8, -170.067}, extent = {{-45.2, -15.0667}, {30.1333, -60.2667}}, rotation = -0)));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
       Placement(transformation(origin = {171, -157.2}, extent = {{-60, -20}, {39.9999, -80}}, rotation = -0)));
-    SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+    SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
       Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
       Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
       Placement(transformation(origin = {-260.4, -119.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-    SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
       Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
     SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
       Placement(transformation(origin = {-66, -300}, extent = {{-27, -27}, {27, 27}})));
-    SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
       Placement(transformation(origin = {-636, 136}, extent = {{-24, -32}, {24, 16}})));
-    SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+    SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
       Placement(transformation(origin = {9, -69.333}, extent = {{-23, -30.6667}, {23, 15.3333}})));
     SMD_MSR_Modelica.Signals.TimeDependent.Stepper uhxDemand(numSteps = numUhxSteps, stepTime = uhxDemandStepTime, amplitude = uhxDemandAmplitude) annotation(
       Placement(transformation(origin = {14, -324}, extent = {{-27, -27}, {27, 27}})));
@@ -1053,7 +1147,7 @@ package MSRR
       Placement(transformation(origin = {-610, 54}, extent = {{-20, -20}, {20, 20}})));
     SMD_MSR_Modelica.Signals.Operations.SumSignals sumExternalReactivity(numInput = 2) annotation(
       Placement(transformation(origin = {-584, 10}, extent = {{-20, -20}, {20, 20}})));
-    MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = powerLevel, aF = -6.26E-5, aG = -5.16E-5, volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = heatLossEnabled, T_inf = heatLossTinf, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+    MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = powerLevel, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = heatLossEnabled, T_inf = heatLossTinf, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
       Placement(transformation(origin = {-566.333, -73}, extent = {{-60, -60}, {60, 60}})));
     output SMD_MSR_Modelica.Units.NeutronEmissionRate sourceRate = msre9r.sourceRate
       "External source rate passed into core kinetics [n/s]";
@@ -1144,7 +1238,14 @@ package MSRR
       dhrs(DHRS_time = 1e12));
   end MSRRuhxNominalTrimNoTrips;
 
-  // R1 trim with all thermal components initialized at steady state (SteadyState initMode).
+  // R1 trim with the LOOP thermal components (heatExchanger, uhx, dhrs, and
+  // the four loop pipes) initialized at steady state (SteadyState initMode).
+  // rev021-B4 (TASK-20260920-01 P9): the former "all thermal components"
+  // claim is narrowed to the code's actual content - the core FuelChannel
+  // keeps its DEFAULT FixedStart setpoint initialization (TF1_0/TF2_0/TG_0;
+  // the trimmed point's thermal derivatives are ~0 there), and propagating
+  // SteadyState into the channel would change these trim wrappers'
+  // initialization numerics. The lumped loop has no MixingPot.
   model MSRRuhxNominalTrimThermalSS
     extends R1MSRRuhx(
       perturbationAmplitudePcm = 1,
@@ -1181,6 +1282,16 @@ package MSRR
       msre9r(regionTripTime = {1e12, 1e12, 1e12, 1e12}));
   end MSRRuhxNominalTrim9RNoTrips;
 
+  // R9 trim with the LOOP thermal components (heatExchanger, uhx, dhrs, and
+  // the four loop pipes) initialized at steady state (SteadyState initMode).
+  // rev021-B4 (TASK-20260920-01 P9): deliberately NOT a full steady-state
+  // core init - the nine core FuelChannels R1..R9 keep their DEFAULT
+  // FixedStart setpoint initialization (the trimmed point's thermal
+  // derivatives are ~0 there) and the upper-plenum MixingPot has no
+  // initMode at all (always T = T_0, see
+  // SMD_MSR_Modelica.HeatTransport.MixingPot); propagating SteadyState
+  // would require a MixingPot initMode and would change these trim
+  // wrappers' initialization numerics, so the claim is scoped to the loop.
   model MSRRuhxNominalTrim9RThermalSS
     extends R9MSRRuhx(
       perturbationAmplitudePcm = 1,
@@ -1207,10 +1318,10 @@ package MSRR
     extends MSRRuhxNominalTrimThermalSS(
       numUhxSteps = 2,
       uhxDemandStepTime = {0, 4000},
-      uhxDemandAmplitude = {1e6, 0},
+      uhxDemandAmplitude = {powerLevel * MSRR_PlantData.nominalPower, 0},
       dhrs(
-        DHRS_P_Bleed = 0.005 * powerLevel * 1e6,
-        DHRS_MaxP_Rm = 0.1 * powerLevel * 1e6,
+        DHRS_P_Bleed = 0.005 * powerLevel * MSRR_PlantData.nominalPower,
+        DHRS_MaxP_Rm = 0.1 * powerLevel * MSRR_PlantData.nominalPower,
         DHRS_time = 4000));
   end MSRRuhxTripThermalSS;
 
@@ -1219,10 +1330,10 @@ package MSRR
     extends MSRRuhxNominalTrim9RThermalSS(
       numUhxSteps = 2,
       uhxDemandStepTime = {0, 4000},
-      uhxDemandAmplitude = {1e6, 0},
+      uhxDemandAmplitude = {powerLevel * MSRR_PlantData.nominalPower, 0},
       dhrs(
-        DHRS_P_Bleed = 0.005 * powerLevel * 1e6,
-        DHRS_MaxP_Rm = 0.1 * powerLevel * 1e6,
+        DHRS_P_Bleed = 0.005 * powerLevel * MSRR_PlantData.nominalPower,
+        DHRS_MaxP_Rm = 0.1 * powerLevel * MSRR_PlantData.nominalPower,
         DHRS_time = 4000));
   end MSRRuhxTrip9RThermalSS;
 
@@ -1257,6 +1368,29 @@ package MSRR
       -350, -200, -100, -50, -20, -5, 0, -100, -50, -20, -5, 0,
       -100, -50, -20, -5, 0
     };
+    // Primary-pump startup schedule (bound into primaryPump below; also the
+    // flow stages that reference the staircase).
+    parameter SMD_MSR_Modelica.Units.FlowFraction startupPumpFreeConvFF = 0.01
+      "Free-convection flow fraction before the first pump stage";
+    parameter SMD_MSR_Modelica.Units.FlowFraction startupPumpRampUpTo[3] = {0.25, 0.50, 1.0}
+      "Pump-stage target flow fractions";
+    parameter SMD_MSR_Modelica.Units.InitiationTime startupPumpRampUpTime[3] = {50400, 72000, 90000}
+      "Pump-stage start times [s] (each staircase step at or after a stage time belongs to that stage)";
+    // Physics review 2026-09-27: with the circulating-fuel compensation frozen
+    // at nominal flow (mPKE rho_0nom), the core is more reactive at reduced
+    // pump flow by loss(FF = 1) - loss(FF). The staircase amplitudes are
+    // therefore measured from the critical position AT THE PUMP FLOW IN
+    // EFFECT at each step - a control-rod program re-referenced at every
+    // pump stage - so "0 pcm" is still "just critical" at every flow. The
+    // offsets come from this core's own kinetics data and transit times.
+    parameter Boolean flowReferencedStaircase = true
+      "true: staircase amplitudes relative to the flow-dependent critical position (commanded external reactivity = amplitude - (loss(1) - loss(FF_stage))); false: amplitudes relative to the nominal-flow critical position";
+    final parameter Real startupStageFlow[4] = cat(1, {startupPumpFreeConvFF}, startupPumpRampUpTo)
+      "Flow fraction of each pump stage";
+    final parameter Real startupStageLossPcm[4] = {MSRR.Functions.circulationLossPcm(MSRR_PlantData.Kinetics.beta, MSRR_PlantData.Kinetics.lambda, core1R.nomTauCore, core1R.nomTauLoop, startupStageFlow[k]) for k in 1:4}
+      "Circulation loss at each pump stage [pcm]";
+    final parameter Real startupStaircaseOffsetPcm[29] = {(if flowReferencedStaircase then -(startupStageLossPcm[4] - startupStageLossPcm[1 + sum({(if startupReactivityStepTime[i] >= startupPumpRampUpTime[k] then 1 else 0) for k in 1:3})]) else 0) for i in 1:29}
+      "Flow-reference offset added to each staircase step [pcm] (0 in the final full-flow stage)";
     extends R1MSRRuhx(
       powerLevel = 0,
       perturbationAmplitudePcm = 0,
@@ -1288,14 +1422,14 @@ package MSRR
       primaryPump(
         numRampUp = 3,
         rampUpK = {50, 50, 50},
-        rampUpTo = {0.25, 0.50, 1.0},
-        rampUpTime = {50400, 72000, 90000},
+        rampUpTo = startupPumpRampUpTo,
+        rampUpTime = startupPumpRampUpTime,
         tripK = 50,
         tripTime = 10800000,
-        freeConvFF = 0.01),
+        freeConvFF = startupPumpFreeConvFF),
       numExternalReactivitySteps = 29,
       externalReactivityStepTime = startupReactivityStepTime,
-      externalReactivityAmplitude = startupReactivityAmplitudePcm,
+      externalReactivityAmplitude = startupReactivityAmplitudePcm + startupStaircaseOffsetPcm,
       numUhxSteps = 1,
       uhxDemandStepTime = {0},
       uhxDemandAmplitude = {0});
@@ -1306,12 +1440,17 @@ package MSRR
   model MSRRstartUpCriticality9R
     parameter SMD_MSR_Modelica.Units.NeutronEmissionRate startupSourceStrength = 1E8
       "External neutron source used during startup [n/s]";
-    parameter SMD_MSR_Modelica.Units.Temperature startupFuelNode1SetPoint = 552.835427095275
-      "0-power fuel-node-1 setpoint from core/init/setpoints_9r.csv";
-    parameter SMD_MSR_Modelica.Units.Temperature startupFuelNode2SetPoint = 552.8354270952749
-      "0-power fuel-node-2 setpoint from core/init/setpoints_9r.csv";
-    parameter SMD_MSR_Modelica.Units.Temperature startupGraphiteSetPoint = 552.8354270952742
-      "0-power graphite setpoint from core/init/setpoints_9r.csv";
+    // Physics review 2026-09-27 B1.4: the 9R startup references are the
+    // isothermal zero-power critical reference, 570 degC, as for the 1R
+    // startup (the former 552.835 degC values matched no setpoint table:
+    // setpoints_9r.csv gives 570.04 degC at 1e-5 MW), so the 1R and 9R
+    // startup figures share one reference temperature and trench Tinf.
+    parameter SMD_MSR_Modelica.Units.Temperature startupFuelNode1SetPoint = 570.0
+      "0-power fuel-node-1 setpoint: the 570 degC isothermal zero-power critical reference";
+    parameter SMD_MSR_Modelica.Units.Temperature startupFuelNode2SetPoint = 570.0
+      "0-power fuel-node-2 setpoint: the 570 degC isothermal zero-power critical reference";
+    parameter SMD_MSR_Modelica.Units.Temperature startupGraphiteSetPoint = 570.0
+      "0-power graphite setpoint: the 570 degC isothermal zero-power critical reference";
     parameter Integer startupSourceSteps(min = 1) = 8;
     parameter SMD_MSR_Modelica.Units.InitiationTime startupSourceStepTime[startupSourceSteps] = {
       0, 40200, 43200, 65400, 68400, 83400, 86400, 101400
@@ -1329,6 +1468,29 @@ package MSRR
       -350, -200, -100, -50, -20, -5, 0, -100, -50, -20, -5, 0,
       -100, -50, -20, -5, 0
     };
+    // Primary-pump startup schedule (bound into primaryPump below; also the
+    // flow stages that reference the staircase).
+    parameter SMD_MSR_Modelica.Units.FlowFraction startupPumpFreeConvFF = 0.01
+      "Free-convection flow fraction before the first pump stage";
+    parameter SMD_MSR_Modelica.Units.FlowFraction startupPumpRampUpTo[3] = {0.25, 0.50, 1.0}
+      "Pump-stage target flow fractions";
+    parameter SMD_MSR_Modelica.Units.InitiationTime startupPumpRampUpTime[3] = {50400, 72000, 90000}
+      "Pump-stage start times [s] (each staircase step at or after a stage time belongs to that stage)";
+    // Physics review 2026-09-27: with the circulating-fuel compensation frozen
+    // at nominal flow (mPKE rho_0nom), the core is more reactive at reduced
+    // pump flow by loss(FF = 1) - loss(FF). The staircase amplitudes are
+    // therefore measured from the critical position AT THE PUMP FLOW IN
+    // EFFECT at each step - a control-rod program re-referenced at every
+    // pump stage - so "0 pcm" is still "just critical" at every flow. The
+    // offsets come from this core's own kinetics data and transit times.
+    parameter Boolean flowReferencedStaircase = true
+      "true: staircase amplitudes relative to the flow-dependent critical position (commanded external reactivity = amplitude - (loss(1) - loss(FF_stage))); false: amplitudes relative to the nominal-flow critical position";
+    final parameter Real startupStageFlow[4] = cat(1, {startupPumpFreeConvFF}, startupPumpRampUpTo)
+      "Flow fraction of each pump stage";
+    final parameter Real startupStageLossPcm[4] = {MSRR.Functions.circulationLossPcm(MSRR_PlantData.Kinetics.beta, MSRR_PlantData.Kinetics.lambda, msre9r.nomTauCore, msre9r.nomTauLoop, startupStageFlow[k]) for k in 1:4}
+      "Circulation loss at each pump stage [pcm]";
+    final parameter Real startupStaircaseOffsetPcm[29] = {(if flowReferencedStaircase then -(startupStageLossPcm[4] - startupStageLossPcm[1 + sum({(if startupReactivityStepTime[i] >= startupPumpRampUpTime[k] then 1 else 0) for k in 1:3})]) else 0) for i in 1:29}
+      "Flow-reference offset added to each staircase step [pcm] (0 in the final full-flow stage)";
     extends R9MSRRuhx(
       powerLevel = 0,
       perturbationAmplitudePcm = 0,
@@ -1340,6 +1502,7 @@ package MSRR
       TF1_0_regions = fill(startupFuelNode1SetPoint, 9),
       TF2_0_regions = fill(startupFuelNode2SetPoint, 9),
       TG_0_regions = fill(startupGraphiteSetPoint, 9),
+      Tmix_0 = startupFuelNode2SetPoint,
       msre9r(
         nFloor = 0,
         nFloorDuringForcing = 0,
@@ -1363,14 +1526,14 @@ package MSRR
       primaryPump(
         numRampUp = 3,
         rampUpK = {50, 50, 50},
-        rampUpTo = {0.25, 0.50, 1.0},
-        rampUpTime = {50400, 72000, 90000},
+        rampUpTo = startupPumpRampUpTo,
+        rampUpTime = startupPumpRampUpTime,
         tripK = 50,
         tripTime = 10800000,
-        freeConvFF = 0.01),
+        freeConvFF = startupPumpFreeConvFF),
       numExternalReactivitySteps = 29,
       externalReactivityStepTime = startupReactivityStepTime,
-      externalReactivityAmplitude = startupReactivityAmplitudePcm,
+      externalReactivityAmplitude = startupReactivityAmplitudePcm + startupStaircaseOffsetPcm,
       numUhxSteps = 1,
       uhxDemandStepTime = {0},
       uhxDemandAmplitude = {0});
@@ -1520,43 +1683,43 @@ package MSRR
   package Transients
     package R1fullSteps
       model R1MSRR2dol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {77.462, -70.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -81.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {93.2, 7.73333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-135.6, 23.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-176.4, -61.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-382.4, -32.8}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-        MSRR.Components.MSRR1R core1R(numGroups = 6,  EnableRad = false, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = 570, kFuel = kFuel, TF1_0 = 570, TF2_0 = 580.4100, TG_0 = 570.0000028) annotation(
+        MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = false, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = MSRR_PlantData.Core1R.TF1, kFuel = kFuel, TF1_0 = MSRR_PlantData.Core1R.TF1, TF2_0 = MSRR_PlantData.Core1R.TF2, TG_0 = MSRR_PlantData.Core1R.TG) annotation(
           Placement(transformation(origin = {-519.334, -66.0002}, extent = {{-110, -89.9998}, {-49.9999, -29.9999}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-27, -161}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-554, 158}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 126.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -209}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 1178.138}) annotation(
           Placement(transformation(origin = {-708.198, 63.8017}, extent = {{-29.7983, -29.7983}, {29.7983, 29.7983}})));
@@ -1624,45 +1787,45 @@ package MSRR
       end R1MSRR2dol;
 
       model R1MSRR1dol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {77.462, -70.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -81.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {93.2, 7.73333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-135.6, 23.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-176.4, -61.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-382.4, -32.8}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-        MSRR.Components.MSRR1R core1R(numGroups = 6,  EnableRad = false, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = 570, kFuel = kFuel, TF1_0 = 570, TF2_0 = 580.4100, TG_0 = 570.0000028) annotation(
+        MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = false, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = MSRR_PlantData.Core1R.TF1, kFuel = kFuel, TF1_0 = MSRR_PlantData.Core1R.TF1, TF2_0 = MSRR_PlantData.Core1R.TF2, TG_0 = MSRR_PlantData.Core1R.TG) annotation(
           Placement(transformation(origin = {-519.334, -66.0002}, extent = {{-110, -89.9998}, {-49.9999, -29.9999}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-27, -161}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-554, 158}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 126.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -209}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 589.069}) annotation(
+        SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 604.887}) annotation(
           Placement(transformation(origin = {-708.198, 63.8017}, extent = {{-29.7983, -29.7983}, {29.7983, 29.7983}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(
@@ -1728,43 +1891,43 @@ package MSRR
       end R1MSRR1dol;
 
       model R1MSRRhalfDol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {77.462, -70.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -81.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {93.2, 7.73333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-135.6, 23.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-176.4, -61.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-382.4, -32.8}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-        MSRR.Components.MSRR1R core1R(numGroups = 6,  EnableRad = false, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = 570, kFuel = kFuel, TF1_0 = 570, TF2_0 = 580.4100, TG_0 = 570.0000028) annotation(
+        MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = false, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = MSRR_PlantData.Core1R.TF1, kFuel = kFuel, TF1_0 = MSRR_PlantData.Core1R.TF1, TF2_0 = MSRR_PlantData.Core1R.TF2, TG_0 = MSRR_PlantData.Core1R.TG) annotation(
           Placement(transformation(origin = {-519.334, -66.0002}, extent = {{-110, -89.9998}, {-49.9999, -29.9999}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-27, -161}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-554, 158}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 126.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -209}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 294.535}) annotation(
           Placement(transformation(origin = {-708.198, 63.8017}, extent = {{-29.7983, -29.7983}, {29.7983, 29.7983}})));
@@ -1832,43 +1995,43 @@ package MSRR
       end R1MSRRhalfDol;
 
       model R1MSRRpOneDol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {77.462, -70.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -81.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {93.2, 7.73333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-135.6, 23.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-176.4, -61.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-382.4, -32.8}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-        MSRR.Components.MSRR1R core1R(numGroups = 6,  EnableRad = false, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = 570, kFuel = kFuel, TF1_0 = 570, TF2_0 = 580.4100, TG_0 = 570.0000028) annotation(
+        MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = false, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = MSRR_PlantData.Core1R.TF1, kFuel = kFuel, TF1_0 = MSRR_PlantData.Core1R.TF1, TF2_0 = MSRR_PlantData.Core1R.TF2, TG_0 = MSRR_PlantData.Core1R.TG) annotation(
           Placement(transformation(origin = {-519.334, -66.0002}, extent = {{-110, -89.9998}, {-49.9999, -29.9999}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-27, -161}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-554, 158}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 126.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -209}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 58.907}) annotation(
           Placement(transformation(origin = {-708.198, 63.8017}, extent = {{-29.7983, -29.7983}, {29.7983, 29.7983}})));
@@ -1936,43 +2099,43 @@ package MSRR
       end R1MSRRpOneDol;
 
       model R1MSRR100pcm
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {77.462, -70.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -81.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {93.2, 7.73333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-135.6, 23.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-176.4, -61.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-382.4, -32.8}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-        MSRR.Components.MSRR1R core1R(numGroups = 6,  EnableRad = false, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = 570, kFuel = kFuel, TF1_0 = 570, TF2_0 = 580.4100, TG_0 = 570.0000028) annotation(
+        MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = false, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = MSRR_PlantData.Core1R.TF1, kFuel = kFuel, TF1_0 = MSRR_PlantData.Core1R.TF1, TF2_0 = MSRR_PlantData.Core1R.TF2, TG_0 = MSRR_PlantData.Core1R.TG) annotation(
           Placement(transformation(origin = {-519.334, -66.0002}, extent = {{-110, -89.9998}, {-49.9999, -29.9999}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-27, -161}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-554, 158}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 126.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -209}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 100}) annotation(
           Placement(transformation(origin = {-708.198, 63.8017}, extent = {{-29.7983, -29.7983}, {29.7983, 29.7983}})));
@@ -2040,43 +2203,43 @@ package MSRR
       end R1MSRR100pcm;
 
       model R1MSRR10pcm
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-28.2, 32.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {77.462, -70.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -81.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {93.2, 7.73333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-267, 32.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-135.6, 23.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-176.4, -61.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-382.4, -32.8}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
-        MSRR.Components.MSRR1R core1R(numGroups = 6,  EnableRad = false, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, a_F = -6.26E-5, a_G = -5.16E-5, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = 570, kFuel = kFuel, TF1_0 = 570, TF2_0 = 580.4100, TG_0 = 570.0000028) annotation(
+        MSRR.Components.MSRR1R core1R(numGroups = MSRR_PlantData.Kinetics.numGroups, EnableRad = false, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, a_F = MSRR_PlantData.Kinetics.a_F, a_G = MSRR_PlantData.Kinetics.a_G, n_0 = 1, rho_fuel = rhoFuel, rho_grap = rhoGrap, cP_fuel = scpFuel, cP_grap = scpGrap, volDotFuel = volDotFuel, Tinf = MSRR_PlantData.Core1R.TF1, kFuel = kFuel, TF1_0 = MSRR_PlantData.Core1R.TF1, TF2_0 = MSRR_PlantData.Core1R.TF2, TG_0 = MSRR_PlantData.Core1R.TG) annotation(
           Placement(transformation(origin = {-519.334, -66.0002}, extent = {{-110, -89.9998}, {-49.9999, -29.9999}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-27, -161}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-554, 158}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 126.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -209}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 10}) annotation(
           Placement(transformation(origin = {-708.198, 63.8017}, extent = {{-29.7983, -29.7983}, {29.7983, 29.7983}})));
@@ -2146,45 +2309,45 @@ package MSRR
 
     package R9fullSteps
       model R9MSRR2dol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-12.2, 90.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {103.462, -66.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -55.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {95.2, 27.7333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-158.4, -105.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {45, -251}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 1178.138}) annotation(
           Placement(transformation(origin = {-596.198, -38.1983}, extent = {{-23.7983, 23.7983}, {23.7983, -23.7983}}, rotation = -0)));
-        MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = 1, aF = -6.26E-5, aG = -5.16E-5,  volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = false, T_inf = 500, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+        MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = 1, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = MSRR_PlantData.Core9R.TF1_0_regions, TF2_0 = MSRR_PlantData.Core9R.TF2_0_regions, TG_0 = MSRR_PlantData.Core9R.TG_0_regions, Tmix_0 = MSRR_PlantData.Core9R.Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = false, T_inf = 500, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
           Placement(transformation(origin = {-258.333, -15}, extent = {{-179.667, -147}, {-81.6667, -49}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(
@@ -2250,45 +2413,45 @@ package MSRR
       end R9MSRR2dol;
 
       model R9MSRR1dol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-10.2, 90.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {101.462, -66.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -55.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {95.2, 27.7333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-158.4, -105.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -251}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 589.069}) annotation(
+        SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 604.887}) annotation(
           Placement(transformation(origin = {-596.198, -38.1983}, extent = {{-23.7983, 23.7983}, {23.7983, -23.7983}}, rotation = -0)));
-        MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = 1, aF = -6.26E-5, aG = -5.16E-5,  volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = false, T_inf = 500, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+        MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = 1, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = MSRR_PlantData.Core9R.TF1_0_regions, TF2_0 = MSRR_PlantData.Core9R.TF2_0_regions, TG_0 = MSRR_PlantData.Core9R.TG_0_regions, Tmix_0 = MSRR_PlantData.Core9R.Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = false, T_inf = 500, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
           Placement(transformation(origin = {-260.333, -15}, extent = {{-179.667, -147}, {-81.6667, -49}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(
@@ -2354,45 +2517,45 @@ package MSRR
       end R9MSRR1dol;
 
       model R9MSRRhalfDol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-10.2, 90.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {101.462, -66.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -55.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {95.2, 27.7333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-158.4, -105.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -251}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 294.535}) annotation(
           Placement(transformation(origin = {-596.198, -38.1983}, extent = {{-23.7983, 23.7983}, {23.7983, -23.7983}}, rotation = -0)));
-        MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = 1, aF = -6.26E-5, aG = -5.16E-5,  volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = false, T_inf = 500, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+        MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = 1, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = MSRR_PlantData.Core9R.TF1_0_regions, TF2_0 = MSRR_PlantData.Core9R.TF2_0_regions, TG_0 = MSRR_PlantData.Core9R.TG_0_regions, Tmix_0 = MSRR_PlantData.Core9R.Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = false, T_inf = 500, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
           Placement(transformation(origin = {-260.333, -15}, extent = {{-179.667, -147}, {-81.6667, -49}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(
@@ -2458,45 +2621,45 @@ package MSRR
       end R9MSRRhalfDol;
 
       model R9MSRRpOneDol
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-10.2, 90.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {101.462, -66.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -55.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {95.2, 27.7333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-158.4, -105.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -251}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 58.907}) annotation(
           Placement(transformation(origin = {-596.198, -38.1983}, extent = {{-23.7983, 23.7983}, {23.7983, -23.7983}}, rotation = -0)));
-        MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = 1, aF = -6.26E-5, aG = -5.16E-5,  volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = false, T_inf = 500, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+        MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = 1, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = MSRR_PlantData.Core9R.TF1_0_regions, TF2_0 = MSRR_PlantData.Core9R.TF2_0_regions, TG_0 = MSRR_PlantData.Core9R.TG_0_regions, Tmix_0 = MSRR_PlantData.Core9R.Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = false, T_inf = 500, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
           Placement(transformation(origin = {-260.333, -15}, extent = {{-179.667, -147}, {-81.6667, -49}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(
@@ -2562,45 +2725,45 @@ package MSRR
       end R9MSRRpOneDol;
 
       model R9MSRR100pcm
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-10.2, 90.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {101.462, -66.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -55.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {95.2, 27.7333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-158.4, -105.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -251}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 100}) annotation(
           Placement(transformation(origin = {-596.198, -38.1983}, extent = {{-23.7983, 23.7983}, {23.7983, -23.7983}}, rotation = -0)));
-        MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = 1, aF = -6.26E-5, aG = -5.16E-5,  volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = false, T_inf = 500, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+        MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = 1, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = MSRR_PlantData.Core9R.TF1_0_regions, TF2_0 = MSRR_PlantData.Core9R.TF2_0_regions, TG_0 = MSRR_PlantData.Core9R.TG_0_regions, Tmix_0 = MSRR_PlantData.Core9R.Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = false, T_inf = 500, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
           Placement(transformation(origin = {-260.333, -15}, extent = {{-179.667, -147}, {-81.6667, -49}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(
@@ -2666,45 +2829,45 @@ package MSRR
       end R9MSRR100pcm;
 
       model R9MSRR10pcm
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = 0.011493;
-        parameter SMD_MSR_Modelica.Units.Density rhoFuel = 2079.449700;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = 2009.66;
-        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = 0;
-        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = 0.030219;
-        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = 1767.1;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = 2390;
-        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = 0;
-        parameter SMD_MSR_Modelica.Units.Density rhoGrap = 1800;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = 1773;
-        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = 8774.5;
-        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = 450;
-        MSRR.Components.HeatExchanger heatExchanger(vol_P = 0.045379, vol_T = 0.023343, vol_S = 0.055947, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = 7.7966e+04, hAsNom = 1.8150e+04, EnableRad = false, AcShell = 0.1298, AcTube = 0.020276, ArShell = 3.1165, Kp = kFuel, Ks = kCoolant, L_shell = 6.2592, L_tube = 12.5185, e = 0.01, Tinf = 500, TpIn_0 = 580.41, TpOut_0 = 560, TsIn_0 = 500, TsOut_0 = 507.84) annotation(
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotFuel = MSRR_PlantData.PrimaryLoop.vdotFuel;
+        parameter SMD_MSR_Modelica.Units.Density rhoFuel = MSRR_PlantData.Materials.rhoFuel;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpFuel = MSRR_PlantData.Materials.cpFuel;
+        parameter SMD_MSR_Modelica.Units.Conductivity kFuel = MSRR_PlantData.Materials.kFuel;
+        parameter SMD_MSR_Modelica.Units.VolumetricFlowRate volDotCoolant = MSRR_PlantData.SecondaryLoop.vdotCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoCoolant = MSRR_PlantData.Materials.rhoCoolant;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpCoolant = MSRR_PlantData.Materials.cpCoolant;
+        parameter SMD_MSR_Modelica.Units.Conductivity kCoolant = MSRR_PlantData.Materials.kCoolant;
+        parameter SMD_MSR_Modelica.Units.Density rhoGrap = MSRR_PlantData.Materials.rhoGrap;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpGrap = MSRR_PlantData.Materials.cpGrap;
+        parameter SMD_MSR_Modelica.Units.Density rhoHXtube = MSRR_PlantData.Materials.rhoHXtube;
+        parameter SMD_MSR_Modelica.Units.SpecificHeatCapacity scpHXtube = MSRR_PlantData.Materials.cpHXtube;
+        MSRR.Components.HeatExchanger heatExchanger(vol_P = MSRR_PlantData.SecondaryLoop.hxVolP, vol_T = MSRR_PlantData.SecondaryLoop.hxVolT, vol_S = MSRR_PlantData.SecondaryLoop.hxVolS, rhoP = rhoFuel, rhoT = rhoHXtube, rhoS = rhoCoolant, cP_P = scpFuel, cP_T = scpHXtube, cP_S = scpCoolant, VdotPnom = volDotFuel, VdotSnom = volDotCoolant, hApNom = MSRR_PlantData.SecondaryLoop.hApNom, hAsNom = MSRR_PlantData.SecondaryLoop.hAsNom, hAExp = 0.33, EnableRad = false, AcShell = MSRR_PlantData.SecondaryLoop.HX.AcShell, AcTube = MSRR_PlantData.SecondaryLoop.HX.AcTube, ArShell = MSRR_PlantData.SecondaryLoop.HX.ArShell, Kp = kFuel, Ks = kCoolant, L_shell = MSRR_PlantData.SecondaryLoop.HX.L_shell, L_tube = MSRR_PlantData.SecondaryLoop.HX.L_tube, e = MSRR_PlantData.SecondaryLoop.HX.e, Tinf = MSRR_PlantData.SecondaryLoop.HX.Tinf, TpIn_0 = MSRR_PlantData.SecondaryLoop.HX.TpIn_0, TpOut_0 = MSRR_PlantData.SecondaryLoop.HX.TpOut_0, TsIn_0 = MSRR_PlantData.SecondaryLoop.HX.TsIn_0, TsOut_0 = MSRR_PlantData.SecondaryLoop.HX.TsOut_0) annotation(
           Placement(transformation(origin = {-10.2, 90.6}, extent = {{-50.8, -25.4}, {76.2, 25.4}})));
-        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = 500, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = 0.204183209633634) annotation(
+        SMD_MSR_Modelica.HeatTransport.UHX uhx(Tp_0 = MSRR_PlantData.SecondaryLoop.UHX.Tp_0, vDot = volDotCoolant, cP = scpCoolant, rho = rhoCoolant, vol = MSRR_PlantData.SecondaryLoop.uhxVol) annotation(
           Placement(transformation(origin = {101.462, -66.3463}, extent = {{-54.8618, -41.1463}, {27.4309, 41.1463}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = 0.2526, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 19.932, EnableRad = false, Ar = 7.9559, e = 0.08, Tinf = 644.4, T_0 = 507.84) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoUHX(vol = MSRR_PlantData.SecondaryLoop.pipeHXtoUHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeHXtoUHX.T_0) annotation(
           Placement(transformation(origin = {-28.8, -55.0667}, extent = {{-27.2, 9.06667}, {18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = 0.4419, volFracNode = 0.1, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = 0.012673, L = 34.870, EnableRad = false, Ar = 13.918, e = 0.08, Tinf = 644.4, T_0 = 500) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeUHXtoHX(vol = MSRR_PlantData.SecondaryLoop.pipeUHXtoHXvol, volFracNode = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.volFracNode, vDotNom = volDotCoolant, rho = rhoCoolant, cP = scpCoolant, K = kCoolant, Ac = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ac, L = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.L, EnableRad = false, Ar = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Ar, e = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.e, Tinf = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.Tinf, T_0 = MSRR_PlantData.SecondaryLoop.PipeUHXtoHX.T_0) annotation(
           Placement(transformation(origin = {95.2, 27.7333}, extent = {{27.2, 9.06667}, {-18.1333, 36.2667}})));
-        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = 0.04, rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = 10, DHRS_MaxP_Rm(displayUnit = "MW") = 320000, DHRS_P_Bleed = 0, DHRS_time = 1000000, K = kFuel, Ac = 0.282743339, L = 0.141471061, Ar = 0.266666667, EnableRad = false, e = 0.08, Tinf = 644.5, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.DHRS dhrs(vol = MSRR_PlantData.PrimaryLoop.volLoop[2], rho = rhoFuel, cP = scpFuel, vDotNom = volDotFuel, DHRS_tK = MSRR_PlantData.PrimaryLoop.dhrsTK, DHRS_MaxP_Rm(displayUnit = "MW") = MSRR_PlantData.PrimaryLoop.dhrsMaxRemove, DHRS_P_Bleed = MSRR_PlantData.PrimaryLoop.dhrsBleed, DHRS_time = MSRR_PlantData.PrimaryLoop.dhrsEngageTime, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.Ac, L = MSRR_PlantData.PrimaryLoop.L, Ar = MSRR_PlantData.PrimaryLoop.Ar, EnableRad = false, e = MSRR_PlantData.PrimaryLoop.e, Tinf = MSRR_PlantData.PrimaryLoop.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.T_0) annotation(
           Placement(transformation(origin = {-249, 30.6667}, extent = {{-49.3333, -24.6667}, {37, 49.3333}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = 4.8738e-03, volFracNode = 0.01, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 1.7839, EnableRad = false, Ar = 0.3305, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeDHRStoHX(vol = MSRR_PlantData.PrimaryLoop.volLoop[3], volFracNode = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ac, L = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Ar, e = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeDHRStoHX.T_0) annotation(
           Placement(transformation(origin = {-141.6, 11.2}, extent = {{-38.4, 12.8}, {25.6, 51.2}})));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = 7.3107e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 2.6758, EnableRad = false, Ar = 0.4958, e = 0.08, Tinf = 644.4, T_0 = 560) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeHXtoCore(vol = MSRR_PlantData.PrimaryLoop.volLoop[5], volFracNode = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ac, L = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Ar, e = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeHXtoCore.T_0) annotation(
           Placement(transformation(origin = {-158.4, -105.6}, extent = {{-37.2, 12.4}, {24.8, 49.6}}, rotation = 180)));
-        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = 2.4369e-03, volFracNode = 0.1, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = 2.7321e-03, L = 0.8919, EnableRad = false, Ar = 0.1653, e = 0.08, Tinf = 644.4, T_0 = 580.41) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pipe pipeCoreToDHRS(vol = MSRR_PlantData.PrimaryLoop.volLoop[1], volFracNode = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.volFracNode, vDotNom = volDotFuel, rho = rhoFuel, cP = scpFuel, K = kFuel, Ac = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ac, L = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.L, EnableRad = false, Ar = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Ar, e = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.e, Tinf = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.Tinf, T_0 = MSRR_PlantData.PrimaryLoop.PipeCoreToDHRS.T_0) annotation(
           Placement(transformation(origin = {-374, 6}, extent = {{-39.6, 13.2}, {26.4, 52.8}})));
         SMD_MSR_Modelica.Signals.Constants.ConstantVolumetricPower constantVolumetricPower(Q_volumetric = 0) annotation(
           Placement(transformation(origin = {-37, -175}, extent = {{-27, -27}, {27, 27}})));
-        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = 1, rampUpK = {1}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump primaryPump(numRampUp = MSRR_PlantData.Pumps.primaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.primaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.primaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.primaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {-550, 116}, extent = {{-24, -32}, {24, 16}})));
-        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = 1, rampUpK = {100}, rampUpTo = {1}, rampUpTime = {0}, tripK = 50, tripTime = 10000000, freeConvFF = 0.01) annotation(
+        SMD_MSR_Modelica.HeatTransport.Pump secondaryPump(numRampUp = MSRR_PlantData.Pumps.secondaryNumRampUp, rampUpK = MSRR_PlantData.Pumps.secondaryRampUpK, rampUpTo = MSRR_PlantData.Pumps.secondaryRampUpTo, rampUpTime = MSRR_PlantData.Pumps.secondaryRampUpTime, tripK = MSRR_PlantData.Pumps.tripK, tripTime = MSRR_PlantData.Pumps.tripTime, freeConvFF = MSRR_PlantData.Pumps.freeConvFF) annotation(
           Placement(transformation(origin = {175, 114.667}, extent = {{-23, -30.6667}, {23, 15.3333}})));
-        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = 1E6) annotation(
+        SMD_MSR_Modelica.Signals.Constants.ConstantReal uhxDemand(magnitude = MSRR_PlantData.nominalPower) annotation(
           Placement(transformation(origin = {43, -251}, extent = {{-27, -27}, {27, 27}})));
         SMD_MSR_Modelica.Signals.TimeDependent.Stepper externalReact(numSteps = 2, stepTime = {0, 4000}, amplitude = {0, 10}) annotation(
           Placement(transformation(origin = {-596.198, -38.1983}, extent = {{-23.7983, 23.7983}, {23.7983, -23.7983}}, rotation = -0)));
-        MSRR.Components.MSRR9R msre9r(numGroups = 6, lambda = {1.240E-02, 3.05E-02, 1.11E-01, 3.01E-01, 1.140E+00, 3.014E+00}, beta = {0.000223, 0.001457, 0.001307, 0.002628, 0.000766, 0.00023}, LAMBDA = 2.400E-04, n_0 = 1, aF = -6.26E-5, aG = -5.16E-5,  volF1 = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827}, volF2 = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784}, volG = {0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400}, volUP = 2*volDotFuel, hA = {513.29, 1430.28, 930.26, 1714.35, 2421.98, 1571.45, 2897.08, 6252.67, 7184.60}, kFN1 = {0.014930, 0.027360, 0.045040, 0.051260, 0.036010, 0.060140, 0.068450, 0.061790, 0.093330}, kFN2 = {0.017210, 0.045500, 0.046560, 0.042610, 0.060690, 0.062180, 0.056640, 0.077070, 0.073110}, kHT1 = {9.4600e-04, 1.6850e-03, 3.0290e-03, 3.4470e-03, 2.2160e-03, 4.0440e-03, 4.6030e-03, 3.9200e-03, 6.2770e-03}, kHT2 = {1.0810e-03, 3.0600e-03, 3.1310e-03, 2.3950e-03, 4.0810e-03, 4.1820e-03, 3.1840e-03, 5.1830e-03, 4.3050e-03}, TF1_0 = TF1_0_regions, TF2_0 = TF2_0_regions, TG_0 = TG_0_regions, Tmix_0 = 580.41, IF1 = {0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360}, IF2 = {0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730}, IG = {0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430}, flowFracRegions = {0.061410, 0.138550, 0.234231, 0.565809}, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = {200000, 200000, 200000, 200000}, regionCoastDownK = 0.02, freeConvFF = 0.01, EnableRad = false, T_inf = 500, LF1 = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028}, LF2 = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082}, Ac = {0.016189, 0.036524, 0.061748, 0.149159}, ArF1 = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145}, ArF2 = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277}, e = 0.08) annotation(
+        MSRR.Components.MSRR9R msre9r(numGroups = MSRR_PlantData.Kinetics.numGroups, lambda = MSRR_PlantData.Kinetics.lambda, beta = MSRR_PlantData.Kinetics.beta, LAMBDA = MSRR_PlantData.Kinetics.LAMBDA, n_0 = 1, aF = MSRR_PlantData.Kinetics.a_F, aG = MSRR_PlantData.Kinetics.a_G, volF1 = MSRR_PlantData.Core9R.volF1, volF2 = MSRR_PlantData.Core9R.volF2, volG = MSRR_PlantData.Core9R.volG, hA = MSRR_PlantData.Core9R.hA, kFN1 = MSRR_PlantData.Core9R.kFN1, kFN2 = MSRR_PlantData.Core9R.kFN2, kHT1 = MSRR_PlantData.Core9R.kHT1, kHT2 = MSRR_PlantData.Core9R.kHT2, TF1_0 = MSRR_PlantData.Core9R.TF1_0_regions, TF2_0 = MSRR_PlantData.Core9R.TF2_0_regions, TG_0 = MSRR_PlantData.Core9R.TG_0_regions, Tmix_0 = MSRR_PlantData.Core9R.Tmix_0, IF1 = MSRR_PlantData.Core9R.IF1, IF2 = MSRR_PlantData.Core9R.IF2, IG = MSRR_PlantData.Core9R.IG, flowFracRegions = MSRR_PlantData.Core9R.flowFracRegions, rho_fuel = rhoFuel, cP_fuel = scpFuel, kFuel = kFuel, volDotFuel = volDotFuel, rho_grap = rhoGrap, cP_grap = scpGrap, regionTripTime = MSRR_PlantData.Core9R.regionTripTime, regionCoastDownK = MSRR_PlantData.Core9R.regionCoastDownK, freeConvFF = MSRR_PlantData.Pumps.freeConvFF, EnableRad = false, T_inf = 500, LF1 = MSRR_PlantData.Core9R.LF1, LF2 = MSRR_PlantData.Core9R.LF2, Ac = MSRR_PlantData.Core9R.Ac, ArF1 = MSRR_PlantData.Core9R.ArF1, ArF2 = MSRR_PlantData.Core9R.ArF2, e = MSRR_PlantData.Core9R.e) annotation(
           Placement(transformation(origin = {-368.333, -141}, extent = {{-179.667, -147}, {-81.6667, -49}})));
       equation
         connect(heatExchanger.T_out_sFluid, pipeHXtoUHX.PiTemp_IN) annotation(

@@ -4,34 +4,29 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
-import shutil
-import sys
 
 try:
-    from .paths import default_startup_csv_path, default_startup_run_dir
-except ImportError:
-    from paths import default_startup_csv_path, default_startup_run_dir
+    from ._common import (
+        CORE_CHOICES,
+        ensure_supported_python,
+        add_package_argument,
+        resolve_startup_csv_path,
+        startup_plot_run_dir,
+    )
+    from .paths import default_startup_run_dir
+except ImportError:  # script-style execution from startup/
+    from _common import (
+        CORE_CHOICES,
+        ensure_supported_python,
+        add_package_argument,
+        resolve_startup_csv_path,
+        startup_plot_run_dir,
+    )
+    from paths import default_startup_run_dir
 
 
-def _ensure_supported_python() -> None:
-    """Re-exec under python3.12 when launched from an unsupported interpreter."""
-    if sys.version_info < (3, 13):
-        return
-    if os.environ.get("MSRR_PLOT_REEXEC") == "1":
-        return
-    py312 = shutil.which("python3.12")
-    if py312 is None:
-        raise SystemExit(
-            "Python 3.13 detected, but this environment's NumPy/Matplotlib build is not "
-            "compatible. Run with python3.12 (or install matching 3.13 wheels)."
-        )
-    os.environ["MSRR_PLOT_REEXEC"] = "1"
-    os.execv(py312, [py312, *sys.argv])
-
-
-_ensure_supported_python()
+ensure_supported_python()
 
 try:
     import matplotlib.pyplot as plt
@@ -94,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--core_model",
         type=str,
-        choices=("1r", "9r"),
+        choices=CORE_CHOICES,
         default="1r",
         help="Core model for default run path and CSV name",
     )
@@ -103,15 +98,24 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help=(
-            "Run directory containing startup artifacts "
-            "(default: 00runs/startup-startup-<core_model>)"
+            "Run directory containing startup artifacts (default: "
+            "00runs/startup-startup-<core_model>); the default CSV and "
+            "output names resolve against this directory, and "
+            "segmented-package runs (default "
+            "00runs/segmented/startup-<scenario>-<core_model>; under an "
+            "explicit --run_dir its segmented/ subdirectory) are probed "
+            "automatically; a CSV in the segmented default directory keeps "
+            "the default outputs beside it"
         ),
     )
     parser.add_argument(
         "--csv",
         type=Path,
         default=None,
-        help="Path to startup CSV (default derived from run definition)",
+        help=(
+            "Path to startup CSV (default derived from the run "
+            "definition, honoring --run_dir and the segmented/ probe)"
+        ),
     )
     parser.add_argument(
         "--out",
@@ -127,6 +131,7 @@ def parse_args() -> argparse.Namespace:
         default="MSRR Startup with Source Windows",
         help="Figure title",
     )
+    add_package_argument(parser)
     args = parser.parse_args()
 
     if args.run_dir is None:
@@ -136,11 +141,26 @@ def parse_args() -> argparse.Namespace:
             core_model=args.core_model,
         )
     if args.csv is None:
-        args.csv = default_startup_csv_path(
+        # Shared run-dir rule (startup/_common.py): an explicit --run_dir
+        # relocates the default CSV; segmented-package runs live at
+        # 00runs/segmented/startup-<scenario>-<core> by default, or under
+        # <run_dir>/segmented/ (probed automatically for 1r/9r).
+        args.csv = resolve_startup_csv_path(
             repo_root,
             scenario=SCENARIO,
             core_model=args.core_model,
+            run_dir=args.run_dir,
+            package=args.package,
         )
+    # Review 2026-10-01 M6: a CSV in the segmented default run directory
+    # keeps the default plot outputs beside it, outside 00runs/startup-*.
+    args.run_dir = startup_plot_run_dir(
+        repo_root,
+        scenario=SCENARIO,
+        core_model=args.core_model,
+        run_dir=args.run_dir,
+        csv=args.csv,
+    )
     if args.out is None:
         args.out = args.run_dir / DEFAULT_OUT_NAME
     return args
@@ -169,7 +189,7 @@ def pick_source_column(columns: list[str]) -> str | None:
 
 
 def extract_source_windows(time_s: np.ndarray, source_rate: np.ndarray) -> list[tuple[float, float]]:
-    active = source_rate > 0
+    active = source_rate > 0.0
     windows: list[tuple[float, float]] = []
     start_idx: int | None = None
 
@@ -243,6 +263,13 @@ def main() -> int:
 
     fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
 
+    # Source-on spans are added before any legend is built so the
+    # "Source on" patch reaches every axis legend.
+    for i, (start_s, end_s) in enumerate(source_on_windows):
+        label = "Source on" if i == 0 else None
+        for axis in axes:
+            axis.axvspan(start_s / 3600.0, end_s / 3600.0, color="#f2c14e", alpha=0.18, label=label)
+
     ax = axes[0]
     ax.plot(time_h, fission_power_kw, color="#1f77b4", linewidth=1.5, label="Fission power")
     ax.axhline(args.target_kw, color="#d62728", linestyle="--", linewidth=1.2, label=f"{args.target_kw:.1f} kW target")
@@ -264,11 +291,6 @@ def main() -> int:
     ax_source = ax.twinx()
     ax_source.step(time_h, source_rate, where="post", color="#9467bd", linewidth=1.2, label="Source rate")
     ax_source.set_ylabel("Source [n/s]")
-
-    for i, (start_s, end_s) in enumerate(source_on_windows):
-        label = "Source on" if i == 0 else None
-        for axis in axes:
-            axis.axvspan(start_s / 3600.0, end_s / 3600.0, color="#f2c14e", alpha=0.18, label=label)
 
     handles_l, labels_l = ax.get_legend_handles_labels()
     handles_r, labels_r = ax_source.get_legend_handles_labels()

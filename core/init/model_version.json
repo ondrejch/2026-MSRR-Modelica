@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "model_version": "psar-basis-2026-10-01",
+  "doc": "Current lumped-model version for steady-state setpoint tables (helpers/setpoint_model_version.py). Strict setpoint loaders refuse a table whose <stem>.model_version.json sidecar names another version. The digests below pin core/SMD_MSR_Modelica.mo, core/MSRR.mo and core/generated/MSRR_PlantData.mo; tests/test_setpoint_model_version.py fails when they drift. Bump the version (record --version NAME --note TEXT) when a change moves steady states, then regenerate the tables; re-record (record) when it does not.",
+  "sources": {
+    "SMD_MSR_Modelica.mo": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838",
+    "MSRR.mo": "1eaeda2882aa60cd7cfcbb190840e7b22adb8235a60265589bcbad4cb097845c",
+    "generated/MSRR_PlantData.mo": "bfe76f85cdda230799e56673c53aa73491cb49d2c06ee384f38d0b172022b25f"
+  },
+  "accepted_sources": [
+    {
+      "SMD_MSR_Modelica.mo": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838",
+      "MSRR.mo": "7f05b09f483fef862bfc9f76469816cbe44b32d10d84dfc543586f51c2e42383",
+      "generated/MSRR_PlantData.mo": "bfe76f85cdda230799e56673c53aa73491cb49d2c06ee384f38d0b172022b25f"
+    },
+    {
+      "SMD_MSR_Modelica.mo": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838",
+      "MSRR.mo": "1e5e587641b988bd723836ba95815848a7a7691f9f9c0318a98b05f0679e75d2",
+      "generated/MSRR_PlantData.mo": "bfe76f85cdda230799e56673c53aa73491cb49d2c06ee384f38d0b172022b25f"
+    },
+    {
+      "SMD_MSR_Modelica.mo": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838",
+      "MSRR.mo": "1eaeda2882aa60cd7cfcbb190840e7b22adb8235a60265589bcbad4cb097845c",
+      "generated/MSRR_PlantData.mo": "bfe76f85cdda230799e56673c53aa73491cb49d2c06ee384f38d0b172022b25f"
+    }
+  ],
+  "history": [
+    {
+      "model_version": "review-2026-09",
+      "recorded_utc": "2026-09-11",
+      "note": "TASK-20260824-02 corrected model (source f1eeafb2) used by the review-2026-09 campaign; its setpoint tables were promoted into core/init on 2026-09-11. Former fourfold HX node UA, 1.58e20 source divisor, live circulating-fuel compensation, strict time > stepTime Stepper, 1R transit times in the 9R core. Named after the fact on 2026-09-27; digests not recorded."
+    },
+    {
+      "model_version": "physics-review-2026-09-27",
+      "recorded_utc": "2026-09-27",
+      "note": "Physics review 2026-09-27 (TASK-20260927-03): per-node HX UA hA/4, source N0 = LAMBDA*nu*P/E_f with source effectiveness eta_S, frozen nominal-flow compensation rho_0nom, Stepper time >= stepTime, Pump.startRamped, 9R region-array and Tmix_0 bindings, 9R transit times from the 9R mesh, flow-referenced startup staircase."
+    },
+    {
+      "model_version": "physics-review-2026-09-27",
+      "recorded_utc": "2026-09-28",
+      "note": "digests re-recorded (steady states unchanged): Stepper numSteps >= 1 assert (rev033 review); no steady-state change"
+    },
+    {
+      "model_version": "psar-basis-2026-10-01",
+      "recorded_utc": "2026-10-01",
+      "note": "TASK-20261001-01: MSRR PSAR design basis - static beta 672 pcm (MSRE group shape), Lambda 259.3 us, fuel-salt rho 2600 kg/m3 / cp 1776 J/(kg K) (ORNL-TM-2316 estimates for 67LiF-28BeF2-5UF4), FLiBe coolant rho 2038 kg/m3, flows from the PSAR mass flows, core hAnom recomputed 24916 -> 4565 W/K (ORNL-TM-4079, 87 channels), fixed 9R upper-plenum volume. Steady states move; tables must be regenerated."
+    },
+    {
+      "model_version": "psar-basis-2026-10-01",
+      "recorded_utc": "2026-10-01",
+      "note": "digests re-recorded (steady states unchanged): TASK-20261001-01: core/MSRR.mo doc string (9R nomTauLoop 13.38 s) and the unused R1MSRR1dol/R9MSRR1dol step literals (589.069 -> 604.887 pcm, the PSAR-basis 1 $); no steady state moves, so the promoted psar-basis tables stay bound."
+    },
+    {
+      "model_version": "psar-basis-2026-10-01",
+      "recorded_utc": "2026-10-02",
+      "note": "digests re-recorded (steady states unchanged): TASK-20261002-01 P1: MSRRstartUpCriticality9R binds Tmix_0 = startupFuelNode2SetPoint (the 9R startup upper plenum started at the PlantData 580.41 degC instead of the 570 degC isothermal startup reference); startup-only models, no steady state moves, so the promoted psar-basis tables stay bound."
+    }
+  ]
+}

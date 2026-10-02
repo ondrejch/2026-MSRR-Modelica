@@ -12,12 +12,18 @@ import numpy as np
 import pandas as pd
 
 try:
+    from ._common import (
+        clean_column_headers,
+        find_power_column,
+        resolve_case_dir,
+    )
     from .paths import (
         default_freq_results_root,
         default_freq_time_compare_out_path,
         make_power_tag,
     )
 except ImportError:
+    from _common import clean_column_headers, find_power_column, resolve_case_dir
     from paths import default_freq_results_root, default_freq_time_compare_out_path, make_power_tag
 
 
@@ -25,10 +31,10 @@ COLOR_1R = "#4E79A7"
 COLOR_9R = "#2F8F83"
 COLOR_FORCING = "#444444"
 
-
-def make_freq_tag(freq: float) -> str:
-    """Return the repository frequency tag used in result directory names."""
-    return f"{freq:08.5f}"
+# Max relative deviation between the requested frequency and the nearest
+# aggregate row in FreqResponseResults.csv before read_fit_summary refuses to
+# substitute a different forcing frequency's fit.
+FIT_FREQ_REL_TOL = 1e-3
 
 
 def repo_root() -> Path:
@@ -141,13 +147,15 @@ def build_case_dir(results_root: Path, core_model: str, power: float) -> Path:
 
 
 def build_trace_path(results_root: Path, core_model: str, power: float, freq: float) -> Path:
-    """Return the raw result CSV path for one frequency point."""
-    freq_tag = make_freq_tag(freq)
-    return (
-        build_case_dir(results_root, core_model, power)
-        / f"freq{freq_tag}"
-        / f"MSRR_freq{freq_tag}_res.csv"
-    )
+    """Return the raw result CSV path for one frequency point.
+
+    Canonical case-directory name (falls back to the frozen pre-fix
+    zero-padded name of published records when the canonical one is
+    absent); the CSV prefix always matches the resolved directory name.
+    """
+    case_dir = build_case_dir(results_root, core_model, power)
+    work_path = Path(resolve_case_dir(str(case_dir), freq))
+    return work_path / f"MSRR_{work_path.name}_res.csv"
 
 
 def read_run_params(case_dir: Path) -> dict[str, float | str]:
@@ -180,8 +188,17 @@ def read_fit_summary(case_dir: Path, freq: float) -> pd.Series:
     if "frequency_rad_s" not in data.columns:
         raise ValueError(f"Missing frequency_rad_s column in {fit_path}")
 
-    row = data.loc[(data["frequency_rad_s"] - freq).abs().idxmin()]
-    return row
+    freq_col = data["frequency_rad_s"]
+    nearest_idx = (freq_col - freq).abs().idxmin()
+    nearest_freq = float(freq_col.loc[nearest_idx])
+    rel_dev = abs(nearest_freq - freq) / abs(freq)
+    if rel_dev > FIT_FREQ_REL_TOL:
+        raise ValueError(
+            f"Requested frequency {freq:g} rad/s not present in {fit_path}; "
+            f"nearest aggregate is {nearest_freq:g} rad/s "
+            f"(relative deviation {rel_dev:.3e} > {FIT_FREQ_REL_TOL:g})."
+        )
+    return data.loc[nearest_idx]
 
 
 def read_time_trace(csv_path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -190,11 +207,16 @@ def read_time_trace(csv_path: Path) -> tuple[np.ndarray, np.ndarray]:
         raise FileNotFoundError(f"Missing time-trace CSV: {csv_path}")
 
     data = pd.read_csv(csv_path)
-    if data.shape[1] < 2:
-        raise ValueError(f"Expected time plus one response column in {csv_path}")
+    data.columns = clean_column_headers(data.columns)
+    if "time" not in data.columns:
+        raise ValueError(f"Missing time column in {csv_path}")
 
-    time = data.iloc[:, 0].to_numpy(dtype=float)
-    power = data.iloc[:, 1].to_numpy(dtype=float)
+    power_col = find_power_column(list(data.columns))
+    if power_col is None:
+        raise ValueError(f"Missing power column in {csv_path}")
+
+    time = data["time"].to_numpy(dtype=float)
+    power = data[power_col].to_numpy(dtype=float)
 
     # OpenModelica CSVs often repeat event times; keep the final value for each
     # repeated stamp so the plotted traces remain clean.

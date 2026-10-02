@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "model_version": "psar-basis-2026-10-01",
+  "model_sources_sha256": {
+    "SMD_MSR_Modelica.mo": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838",
+    "MSRR.mo": "7f05b09f483fef862bfc9f76469816cbe44b32d10d84dfc543586f51c2e42383",
+    "generated/MSRR_PlantData.mo": "bfe76f85cdda230799e56673c53aa73491cb49d2c06ee384f38d0b172022b25f"
+  },
+  "generator": "core.init.generateSetpointTable",
+  "generation": {
+    "generator_file": "generateSetpointTable.py",
+    "generator_sha256": "2d283ca6ad8c377f20356599a9fa5888716d4c3423a306f11d1f26947fa73523",
+    "omc_version": "v1.27.0-cmake",
+    "python_version": "3.12.14",
+    "settings": {
+      "core_model": "9r",
+      "model_name": null,
+      "qualification_profile": "publication",
+      "stop_time": 30000.0,
+      "tail_fraction": 0.2,
+      "tail_min_samples": 1000,
+      "tail_min_duration": 1000.0,
+      "conv_residual_amplitude_tol": 0.005,
+      "conv_window_tol": 0.002,
+      "conv_slope_tol": 0.002,
+      "conv_temperature_abs_tol": 0.5,
+      "conv_temperature_floor": 1.0,
+      "conv_power_abs_tol": 1.0,
+      "conv_power_floor": 1.0,
+      "conv_population_floor": 1e-09,
+      "no_feedback": false,
+      "init_temp": 570.0,
+      "accept_unconverged": false
+    }
+  },
+  "table": "setpoints_9r.csv",
+  "table_sha256": "ae41ee4b788e63678bd16d3f06e698dc3e31e2a558020a24b2db159b6e2ae92f",
+  "derived": {
+    "helper": "helpers/paper-rerun/complete_setpoint_table.py",
+    "first_pass_table_sha256": "23ce4ea1b4839ffdc0697f765f7744b6888c811f988f7feabe16042f08d9947b",
+    "continuation_table": "setpoints_9r_continuation.csv",
+    "continuation_table_sha256": "a1c3db1d6fb136cbab2f5844cf7de5f760f398487673b75c0baf750d12c72828",
+    "continuation_generation": {
+      "generator_file": "generateSetpointTableContinuation.py",
+      "generator_sha256": "dcb5aa596f42fd2b26f62cad00b981e09983c49021553d7363886e6da38b650a",
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14",
+      "settings": {
+        "core_model": "9r",
+        "model_name": null,
+        "qualification_profile": "publication",
+        "tail_fraction": 0.2,
+        "tail_min_samples": 1000,
+        "tail_min_duration": 1000.0,
+        "conv_residual_amplitude_tol": 0.005,
+        "conv_window_tol": 0.002,
+        "conv_slope_tol": 0.002,
+        "conv_temperature_abs_tol": 0.5,
+        "conv_temperature_floor": 1.0,
+        "conv_power_abs_tol": 1.0,
+        "conv_power_floor": 1.0,
+        "conv_population_floor": 1e-09,
+        "no_feedback": false,
+        "init_temp": 570.0,
+        "accept_unconverged": false,
+        "method": "dassl",
+        "base_stop_time": 30000.0,
+        "low_stop_time": 200000.0,
+        "low_power_threshold": 0.01,
+        "retry_stop_time": 300000.0,
+        "max_ratio": 2.0,
+        "enable_steady_state": false,
+        "steady_state_tol": 1e-06,
+        "simflags_extra": "",
+        "retry_nls": "mixed",
+        "init_from": "setpoints_9r.csv",
+        "init_from_sha256": "23ce4ea1b4839ffdc0697f765f7744b6888c811f988f7feabe16042f08d9947b"
+      }
+    },
+    "continuation_targets": [
+      1e-05,
+      0.01
+    ]
+  },
+  "written_utc": "2026-10-01T13:22:30+00:00"
+}

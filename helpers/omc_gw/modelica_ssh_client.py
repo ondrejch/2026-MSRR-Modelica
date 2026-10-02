@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -87,8 +88,10 @@ def _default_agent_command(config: dict[str, Any] | None = None) -> str:
                 repo_rel = repo_rel[6:]
             elif repo_rel.startswith("~/"):
                 repo_rel = repo_rel[2:]
+            repo_rel = _validate_remote_repo_relpath(repo_rel)
             repo_root = _remote_home_shell_path(f"~/{repo_rel}" if repo_rel else "~")
-            return f"python3 {repo_root}/helpers/omc_gw/modelica_ssh_agent.py"
+            quoted_repo_root = _quote_remote_path(repo_root)
+            return f"python3 {quoted_repo_root}/helpers/omc_gw/modelica_ssh_agent.py"
     raise ModelicaSshError(
         "unconfigured Modelica SSH client: set agent_command (or "
         "remote_agent_command) or remote_repo_relpath in the user config "
@@ -101,15 +104,114 @@ class ModelicaSshError(RuntimeError):
     """Raised when communication with the remote agent fails."""
 
 
+# Relative remote paths are restricted to characters that the remote shell
+# treats literally, so a value cannot smuggle operators, expansions, or
+# separators into the composed agent command.
+_REMOTE_REPO_RELPATH_RE = re.compile(r"^[A-Za-z0-9._/~-]+$")
+
+
+def _validate_ssh_destination(value: str, *, what: str) -> str:
+    """Reject SSH destination values ssh could parse as options or shell tokens.
+
+    The rejected value is deliberately not included in the error message so it
+    cannot leak into stderr or logs.
+    """
+
+    if not value or value.startswith("-"):
+        raise ModelicaSshError(
+            f"{what} must not be empty or start with '-' (it would be parsed as an SSH option)."
+        )
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ModelicaSshError(f"{what} must not contain whitespace or control characters.")
+    return value
+
+
+def _validate_agent_command_fragment(command: str) -> str:
+    """Validate the configured remote agent command.
+
+    ``agent_command`` is a *trusted shell fragment*: it comes from the
+    user-local config file (or ``--agent-command``) and the remote shell
+    executes it verbatim. It is intentionally not quoted as a single token,
+    because the supported ``python3 "$HOME/..."`` form depends on remote shell
+    expansion of ``$HOME`` and ``~`` paths, which quoting would disable. Only
+    control characters are rejected here; every argument this client appends
+    after the fragment is ``shlex.quote``d separately.
+    """
+
+    if any(ord(ch) < 32 and ch != "\t" or ord(ch) == 127 for ch in command):
+        raise ModelicaSshError(
+            "agent_command must not contain control characters (including newlines)."
+        )
+    return command
+
+
+def _validate_remote_repo_relpath(repo_rel: str) -> str:
+    """Validate a ``remote_repo_relpath`` value before building a remote path.
+
+    The value must be a relative path under the remote home directory so the
+    composed agent command cannot be redirected elsewhere or inject shell
+    syntax. The rejected value is deliberately not included in the message.
+    """
+
+    if not repo_rel:
+        return repo_rel
+    if repo_rel.startswith("/"):
+        raise ModelicaSshError(
+            "remote_repo_relpath must be a path relative to the remote home "
+            "directory; configure agent_command instead for absolute paths."
+        )
+    if not _REMOTE_REPO_RELPATH_RE.fullmatch(repo_rel):
+        raise ModelicaSshError(
+            "remote_repo_relpath must contain only letters, digits, '.', '_', "
+            "'/', '-', and '~'."
+        )
+    if any(segment == ".." for segment in repo_rel.split("/")):
+        raise ModelicaSshError("remote_repo_relpath must not contain '..' path segments.")
+    return repo_rel
+
+
+def _quote_remote_path(path: str) -> str:
+    """Quote *path* for the remote shell while preserving a leading ``~`` expansion."""
+
+    if path == "~":
+        return "~"
+    if path.startswith("~/"):
+        return "~/" + shlex.quote(path[2:])
+    return shlex.quote(path)
+
+
+def _redacted_remote_command(cmd: list[str]) -> list[str]:
+    """Return *cmd* with the remote command payload replaced by a placeholder.
+
+    The remote command can embed credentials or tokens (``--cmd`` text); it is
+    never copied verbatim into exception messages or logs.
+    """
+
+    if not cmd:
+        return []
+    return [*cmd[:-1], f"<remote-command elided; {len(cmd[-1])} chars>"]
+
+
 @dataclass
 class ModelicaSshClient:
     """Thin Python API around ``ssh <host> modelica_ssh_agent.py ...``."""
 
     host: str | None = None
+    # Trusted shell fragment: configured by the user, executed by the remote
+    # shell verbatim (see _validate_agent_command_fragment for why it is not
+    # quoted). Everything this client appends to it is shlex.quote'd.
     agent_command: str | None = None
     ssh_bin: str = "ssh"
     ssh_options: tuple[str, ...] = ()
     jobs_root: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject unsafe host and agent-command values as early as possible."""
+
+        if self.host is not None:
+            _validate_ssh_destination(self.host, what="host")
+        if self.agent_command is not None:
+            _validate_agent_command_fragment(self.agent_command)
 
     def _ssh_base_command(self) -> list[str]:
         """Return the SSH command prefix for remote agent invocations."""
@@ -119,6 +221,7 @@ class ModelicaSshClient:
                 "No SSH host configured. Pass --host or set 'host' in "
                 f"{config_path_hint()}."
             )
+        _validate_ssh_destination(self.host, what="host")
         if not self.agent_command:
             raise ModelicaSshError(
                 "No remote agent command configured. Pass --agent-command or set "
@@ -131,6 +234,7 @@ class ModelicaSshClient:
 
         if not self.agent_command:
             raise ModelicaSshError("Remote agent command is not configured.")
+        _validate_agent_command_fragment(self.agent_command)
         quoted_args = " ".join(shlex.quote(item) for item in args)
         if quoted_args:
             return f"{self.agent_command} {quoted_args}"
@@ -144,13 +248,14 @@ class ModelicaSshClient:
         if proc.returncode != 0:
             raise ModelicaSshError(
                 "Remote agent call failed: "
-                f"rc={proc.returncode}, cmd={cmd!r}, stdout={proc.stdout.strip()!r}, stderr={proc.stderr.strip()!r}"
+                f"rc={proc.returncode}, cmd={_redacted_remote_command(cmd)!r}, "
+                f"stdout={proc.stdout.strip()!r}, stderr={proc.stderr.strip()!r}"
             )
         try:
             payload = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise ModelicaSshError(
-                f"Remote agent returned non-JSON output for cmd={cmd!r}: {proc.stdout!r}"
+                f"Remote agent returned non-JSON output for cmd={_redacted_remote_command(cmd)!r}: {proc.stdout!r}"
             ) from exc
         if not payload.get("ok", False):
             raise ModelicaSshError(f"Remote agent reported failure: {payload!r}")
@@ -165,7 +270,8 @@ class ModelicaSshClient:
             if proc.returncode != 0:
                 raise ModelicaSshError(
                     "Remote logs call failed: "
-                    f"rc={proc.returncode}, cmd={cmd!r}, stdout={proc.stdout.strip()!r}, stderr={proc.stderr.strip()!r}"
+                    f"rc={proc.returncode}, cmd={_redacted_remote_command(cmd)!r}, "
+                    f"stdout={proc.stdout.strip()!r}, stderr={proc.stderr.strip()!r}"
                 )
             return proc.stdout
         proc = subprocess.run(cmd, check=False)
@@ -217,8 +323,12 @@ class ModelicaSshClient:
         if wait_timeout_seconds is not None:
             args.extend(["--wait-timeout-seconds", str(wait_timeout_seconds)])
         if workers:
-            args.extend(["--workers", ",".join(workers)])
+            worker_values = list(workers)
+            for item in worker_values:
+                _validate_ssh_destination(item, what="worker")
+            args.extend(["--workers", ",".join(worker_values)])
         if worker:
+            _validate_ssh_destination(worker, what="worker")
             args.extend(["--worker", worker])
         if name:
             args.extend(["--name", name])
@@ -257,7 +367,10 @@ class ModelicaSshClient:
 
         args = self._agent_args("capacity", "--max-tasks-per-worker", str(max_tasks_per_worker))
         if workers:
-            args.extend(["--workers", ",".join(workers)])
+            worker_values = list(workers)
+            for item in worker_values:
+                _validate_ssh_destination(item, what="worker")
+            args.extend(["--workers", ",".join(worker_values)])
         payload = self._run_json(args)
         return payload["workers"]
 

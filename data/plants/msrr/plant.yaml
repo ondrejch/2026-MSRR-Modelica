@@ -1,0 +1,36 @@
+# MSRR plant identity. Shared kinetics/materials/loops plus four cores
+# (r1, r1_10seg, r5x5_z10, r9), and the optional outer-core fuel annulus /
+# reactor-vessel / cavity dataset (shared/core_vessel.yaml, wired under the
+# pinned key `outer_fuel_annulus` by TASK-20260917-01 P7; shipped disabled).
+# Authoring source of truth — do not generate Modelica by hand; run
+#   python3.12 -m helpers.emit_modelica_plant
+# Keys r1/r1_10seg/r5x5_z10/r9 map to CLI --core_model 1r/1r10seg/r5x5_z10/9r.
+schema_version: 1
+kind: plant
+id: msrr
+display_name: Molten Salt Research Reactor
+nominal_power:
+  value: 1.0e6
+  unit: W
+  doc: Nominal fission-plus-decay power P used by PowerBlock (1 MW).
+  source: MSRR.Components.MSRR1R powerblock.P / SegmentedMSR.Reactors.MSRR1R.P
+total_fuel_vol:
+  value: 0.5
+  unit: m3
+  doc: Total primary salt inventory (core cells + loop). Cross-check, not a derived sum in the lumped models.
+  source: PowerBlock.TotalFuelVol
+includes:
+  kinetics: shared/kinetics.yaml
+  decay_heat: shared/decay_heat.yaml
+  materials: shared/materials.yaml
+  primary_loop: shared/primary_loop.yaml
+  secondary_loop: shared/secondary_loop.yaml
+  pumps: shared/pumps.yaml
+  poisons: shared/poisons.yaml
+  outer_fuel_annulus: shared/core_vessel.yaml
+  cores:
+    r1: cores/r1.yaml
+    r1_10seg: cores/r1_10seg.yaml
+    r5x5_z10: cores/r5x5_z10.yaml
+    r9: cores/r9.yaml
+  harness: harness/collapse_parity.yaml  # documentation-only; not emitted into PlantData

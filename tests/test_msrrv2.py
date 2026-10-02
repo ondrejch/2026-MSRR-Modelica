@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,6 +12,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+
+from helpers.plant_config import (
+    LUMPED_PLANT_DATA_FILE,
+    copy_lumped_sources,
+    load_plant,
+    lumped_load_file_text,
+    quantity_value,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_DIR = ROOT / "core"
@@ -46,16 +55,25 @@ CORE_MODELS = {
 
 STARTUP_EQ_T0 = {
     "1r": 570.0000000000202,
-    "9r": 552.8354270952742,
+    # Physics review 2026-09-27 (B1.4): the 9R startup references the same
+    # 570 degC isothermal zero-power critical reference as 1R (formerly
+    # 552.835 degC, which matched no setpoint table).
+    "9r": 570.0,
 }
 STARTUP_N_FLOOR = 1e-9
+# Restart from the promoted corrected-model rows (campaign
+# corrected-2026-09-28), bounds about 5-10x the measured values at 0.1 and
+# 1 MW. Measured relative n movement at 10 s / 50 s: 1R <= 2.7e-5 / 1.7e-4,
+# 9R <= 4.4e-5 / 2.0e-4; rate at 50 s <= 3.4e-6. (A 9R 1.9e-2 drift seen
+# first came from this test skipping the region-1 ICs, a pre-B1.3
+# exclusion, not from the table.) The former 3e-2 / 0.20 bounds absorbed the
+# stale-HX-IC kick of the review-2026-09 tables.
 NOMINAL_INIT_REL_DELTA_N_TOL = {
-    # Stale HX ICs (T_TN≈T_SN) feed back through fuel T into n.
-    "1r": 3e-2,
-    "9r": 3e-2,
+    "1r": 3e-4,
+    "9r": 3e-4,
 }
-NOMINAL_INIT_REL_DELTA_N_T50_TOL = 0.20  # n still walks on the fuel-feedback tail
-NOMINAL_INIT_REL_DN_RATE_TOL = 5e-3
+NOMINAL_INIT_REL_DELTA_N_T50_TOL = {"1r": 2e-3, "9r": 2e-3}
+NOMINAL_INIT_REL_DN_RATE_TOL = 5e-5
 
 
 pytestmark = pytest.mark.skipif(OMC_BIN is None, reason="OpenModelica (omc) not found")
@@ -64,8 +82,7 @@ pytestmark = pytest.mark.skipif(OMC_BIN is None, reason="OpenModelica (omc) not 
 def _prepare_workspace(tmp_path: Path) -> Path:
     workdir = tmp_path / "omc_case"
     workdir.mkdir()
-    shutil.copy2(SMD_LIBRARY, workdir / SMD_LIBRARY.name)
-    shutil.copy2(MSRR_MODEL, workdir / MSRR_MODEL.name)
+    copy_lumped_sources(CORE_DIR, workdir)
     return workdir
 
 
@@ -88,9 +105,10 @@ def _simulate(
 
     flags_text = f',simflags="{simflags}"' if simflags else ""
     mos_text = (
-        'loadFile("SMD_MSR_Modelica.mo");\n'
-        'loadFile("MSRR.mo");\n'
-        f"simulate({model_name},"
+        lumped_load_file_text(
+            [LUMPED_PLANT_DATA_FILE, "SMD_MSR_Modelica.mo", "MSRR.mo"]
+        )
+        + f"simulate({model_name},"
         f"startTime={start_time:.10g},"
         f"stopTime={stop_time:.10g},"
         f"numberOfIntervals={int(number_of_intervals)},"
@@ -146,11 +164,11 @@ def _simflags_from_setpoint_row(power_level: float, row: pd.Series) -> str:
         "heatExchanger.T_SN3_0",
         "heatExchanger.T_SN4_0",
     }
-    non_overridable_keys = {
-        "TF1_0_regions[1]",
-        "TF2_0_regions[1]",
-        "TG_0_regions[1]",
-    }
+    # Region 1 of the 9R arrays is overridable since the physics review
+    # 2026-09-27 (B1.3: R9MSRRuhx binds all nine region elements directly).
+    # The former exclusion started region 1 from the deck trim instead of the
+    # table row, which showed up as a ~2 % 9R neutron restart transient.
+    non_overridable_keys: set[str] = set()
     parts = [
         f"powerLevel={power_level:.16g}",
         "perturbationAmplitudePcm=0",
@@ -161,11 +179,42 @@ def _simflags_from_setpoint_row(power_level: float, row: pd.Series) -> str:
     ]
     if any(key in row.index for key in hx_state_keys):
         parts.append("heatExchanger.detailedStateInitWeight=1")
+    # TASK-20260911-04 P1: the promoted core/init/ setpoint tables carry the
+    # generator's 'qualified' convergence-verdict column. It is provenance
+    # metadata, not a Modelica parameter -- forwarding it as
+    # 'qualified=1' would corrupt the -override= payload (omc 1.27.0-cmake
+    # only warns on unknown override names, so the leak must be excluded
+    # here; pinned by test_simflags_from_setpoint_row_skips_non_modelica_columns).
     for key, value in row.items():
-        if key == "power" or key in non_overridable_keys:
+        if key == "power" or key == "qualified" or key in non_overridable_keys:
             continue
         parts.append(f"{key}={float(value):.16g}")
     return ",".join(parts)
+
+
+@pytest.mark.parametrize("core_model", ["1r", "9r"])
+def test_simflags_from_setpoint_row_skips_non_modelica_columns(core_model: str) -> None:
+    """TASK-20260911-04 P1 pin: the -override= payload built from a promoted
+    ``core/init/`` setpoint row must NOT contain the generator's ``qualified``
+    verdict column.
+
+    Non-vacuous in both directions: the row read from the promoted table
+    genuinely carries ``qualified=1`` (the premise of the leak -- the
+    pre-fix helper emitted a trailing 'qualified=1' into every payload,
+    which omc 1.27.0-cmake only warns about, non-fatally), and the payload
+    still forwards the real setpoint surface."""
+    row = _setpoint_row_for_power(core_model, 1.0)
+    assert "qualified" in row.index, (
+        "premise: the promoted table row carries the verdict column"
+    )
+    simflags = _simflags_from_setpoint_row(1.0, row)
+    assert "qualified=" not in simflags, (
+        "the convergence verdict is not a Modelica parameter; it must be "
+        "excluded from the override payload"
+    )
+    # The genuine setpoint surface is still forwarded.
+    assert simflags.startswith("powerLevel=1")
+    assert "fuelTempSetPointNode1=" in simflags
 
 
 def _external_reactivity_column(columns: list[str]) -> str:
@@ -173,6 +222,35 @@ def _external_reactivity_column(columns: list[str]) -> str:
         if not name.startswith("der(") and name.endswith("externalReactivityIn"):
             return name
     raise AssertionError("Missing *externalReactivityIn column")
+
+
+def _plant_data_core9r_trim_arrays(path: Path) -> dict[str, list[float]]:
+    """TF1_0/TF2_0/TG_0 region ICs from the generated ``MSRR_PlantData.mo``.
+
+    Reads the Core9R package of the PlantData file the simulated workdir
+    actually loaded (copy_lumped_sources flattens core/generated/
+    MSRR_PlantData.mo beside MSRR.mo), so the expected values come from the
+    same generated constants R9MSRRuhx binds -- not from hard-coded digits.
+    """
+    raw = path.read_text()
+    pkg_match = re.search(r"package\s+Core9R\b(.*?)\bend\s+Core9R\s*;", raw, re.S)
+    assert pkg_match is not None, "Core9R package not found in MSRR_PlantData.mo"
+    body = pkg_match.group(1)
+    arrays: dict[str, list[float]] = {}
+    for name in ("TF1_0_regions", "TF2_0_regions", "TG_0_regions"):
+        arr_match = re.search(
+            rf"final\s+constant\s+Real\s+{name}\s*\[[^\]]*\]\s*=\s*\{{([^}}]+)\}}",
+            body,
+            re.S,
+        )
+        assert arr_match is not None, f"{name} not found in PlantData Core9R"
+        arrays[name] = [
+            float(part.strip())
+            for part in arr_match.group(1).split(",")
+            if part.strip()
+        ]
+        assert len(arrays[name]) == 9, f"{name}: expected 9 regions"
+    return arrays
 
 
 @pytest.mark.parametrize("core_model", ["1r", "9r"])
@@ -229,6 +307,16 @@ def test_nominal_initialization_state_from_setpoints(tmp_path: Path, core_model:
     workdir = _prepare_workspace(tmp_path)
     power_level = 0.1
     setpoint_row = _setpoint_row_for_power(core_model, power_level)
+    # Physics review 2026-09-27 (B1.3): the 9R core is trimmed by the
+    # table's region columns (all nine elements overridable); the shell
+    # scalars no longer feed it. The 1R core keeps the scalar route.
+    region_overrides = ""
+    if core_model == "9r":
+        region_overrides = "".join(
+            f",{prefix}[{i}]={float(setpoint_row[f'{prefix}[{i}]']):.16g}"
+            for prefix in _REGION_PREFIXES
+            for i in range(1, 10)
+        )
 
     csv_path, _ = _simulate(
         workdir=workdir,
@@ -246,6 +334,7 @@ def test_nominal_initialization_state_from_setpoints(tmp_path: Path, core_model:
             f"fuelTempSetPointNode1={float(setpoint_row['fuelTempSetPointNode1']):.16g},"
             f"fuelTempSetPointNode2={float(setpoint_row['fuelTempSetPointNode2']):.16g},"
             f"graphiteTempSetPoint={float(setpoint_row['graphiteTempSetPoint']):.16g}"
+            f"{region_overrides}"
         ),
     )
 
@@ -266,19 +355,102 @@ def test_nominal_initialization_state_from_setpoints(tmp_path: Path, core_model:
     assert float(row0[fission_power_col]) > 0.0
 
     freq_temp_cols = CORE_MODELS[core_model]["freq_temp_cols"]
-    assert float(row0[freq_temp_cols["fuel1"]]) == pytest.approx(
-        float(setpoint_row["fuelTempSetPointNode1"]), abs=1e-6
+    if core_model == "9r":
+        expected = (
+            float(setpoint_row["TF1_0_regions[1]"]),
+            float(setpoint_row["TF2_0_regions[1]"]),
+            float(setpoint_row["TG_0_regions[1]"]),
+        )
+    else:
+        expected = (
+            float(setpoint_row["fuelTempSetPointNode1"]),
+            float(setpoint_row["fuelTempSetPointNode2"]),
+            float(setpoint_row["graphiteTempSetPoint"]),
+        )
+    assert float(row0[freq_temp_cols["fuel1"]]) == pytest.approx(expected[0], abs=1e-6)
+    assert float(row0[freq_temp_cols["fuel2"]]) == pytest.approx(expected[1], abs=1e-6)
+    assert float(row0[freq_temp_cols["graphite"]]) == pytest.approx(expected[2], abs=1e-6)
+
+
+_REGION_PREFIXES = ("TF1_0_regions", "TF2_0_regions", "TG_0_regions")
+
+
+def test_nominal_trim_9r_region_trims_and_plenum_are_overridable(tmp_path: Path) -> None:
+    """9R initialization contract (physics review 2026-09-27, B1.2/B1.3).
+
+    Every element of TF1_0_regions / TF2_0_regions / TG_0_regions -- region 1
+    included -- and the top-level Tmix_0 accept a setpoint-table override
+    (the former cat(1, {scalar}, ...) binding made OMC refuse the region
+    overrides, and Tmix_0 was 'not found' because the plenum bound a
+    PlantData constant inside msre9r). The shell scalars
+    fuelTempSetPointNode1/fuelTempSetPointNode2/graphiteTempSetPoint no
+    longer feed the 9R core: overriding them alone leaves region 1 at the
+    PlantData profile. Row-0 readbacks prove both directions."""
+    workdir = _prepare_workspace(tmp_path)
+    power_level = 0.1
+    setpoint_row = _setpoint_row_for_power("9r", power_level)
+    common = (
+        f"powerLevel={power_level:.16g},"
+        "perturbationAmplitudePcm=0,"
+        "perturbationOmega=0.01,"
+        "perturbationStartTime=1000,"
+        "primaryPump.freeConvFF=1,"
+        "secondaryPump.freeConvFF=1"
     )
-    assert float(row0[freq_temp_cols["fuel2"]]) == pytest.approx(
-        float(setpoint_row["fuelTempSetPointNode2"]), abs=1e-6
+    region_keys = [f"{prefix}[{i}]" for prefix in _REGION_PREFIXES for i in range(1, 10)]
+    table = ",".join(
+        f"{key}={float(setpoint_row[key]):.16g}" for key in region_keys + ["Tmix_0"]
     )
-    assert float(row0[freq_temp_cols["graphite"]]) == pytest.approx(
-        float(setpoint_row["graphiteTempSetPoint"]), abs=1e-6
+    csv_path, output = _simulate(
+        workdir=workdir,
+        model_name="MSRR.MSRRuhxNominalTrim9RNoTrips",
+        file_prefix="nominal_init_9r_regions",
+        stop_time=5.0,
+        number_of_intervals=50,
+        simflags=f"-override={common},{table}",
     )
+    for key in region_keys + ["Tmix_0"]:
+        assert f"not possible to override the following quantity: {key}" not in output, key
+        assert f"override variable name not found in model: {key}" not in output, key
+    row0 = pd.read_csv(csv_path).iloc[0]
+    assert float(row0["msre9r.mpke.n_population.n"]) == pytest.approx(power_level, abs=1e-8)
+    for region in (1, 2, 9):
+        for node, prefix in (("fuelNode1", "TF1_0_regions"), ("fuelNode2", "TF2_0_regions"),
+                             ("grapNode", "TG_0_regions")):
+            assert float(row0[f"msre9r.R{region}.{node}.T"]) == pytest.approx(
+                float(setpoint_row[f"{prefix}[{region}]"]), abs=1e-6
+            ), (region, node)
+    assert float(row0["msre9r.upperPlenum.T"]) == pytest.approx(
+        float(setpoint_row["Tmix_0"]), abs=1e-6
+    )
+
+    # Shell scalars alone: accepted, but dead for the 9R core.
+    csv_scalar, output_scalar = _simulate(
+        workdir=workdir,
+        model_name="MSRR.MSRRuhxNominalTrim9RNoTrips",
+        file_prefix="nominal_init_9r_scalars",
+        stop_time=5.0,
+        number_of_intervals=50,
+        simflags=(
+            f"-override={common},"
+            f"fuelTempSetPointNode1={float(setpoint_row['fuelTempSetPointNode1']):.16g},"
+            f"fuelTempSetPointNode2={float(setpoint_row['fuelTempSetPointNode2']):.16g},"
+            f"graphiteTempSetPoint={float(setpoint_row['graphiteTempSetPoint']):.16g}"
+        ),
+    )
+    row0s = pd.read_csv(csv_scalar).iloc[0]
+    plant = _plant_data_core9r_trim_arrays(workdir / LUMPED_PLANT_DATA_FILE)
+    assert float(row0s["msre9r.R1.fuelNode1.T"]) == pytest.approx(plant["TF1_0_regions"][0], abs=1e-6)
+    assert float(row0s["msre9r.R1.grapNode.T"]) == pytest.approx(plant["TG_0_regions"][0], abs=1e-6)
 
 
 @pytest.mark.parametrize("core_model", ["1r", "9r"])
-@pytest.mark.parametrize("power_level", [0.1, 1.0])
+@pytest.mark.parametrize(
+    # The 1 MW cases were strict xfails while core/init held the
+    # review-2026-09 tables (former 4x HX UA); the corrected campaign
+    # corrected-2026-09-28 regenerated and promoted them.
+    "power_level", [0.1, 1.0]
+)
 def test_nominal_frequency_initialization_near_equilibrium(
     tmp_path: Path,
     core_model: str,
@@ -311,9 +483,11 @@ def test_nominal_frequency_initialization_near_equilibrium(
 
     hx_dn_col = "der(heatExchanger.T_TN1)"
     assert hx_dn_col in data.columns
-    # Setpoint CSVs still have infinite-UA ICs (T_TN≈T_SN) applied with
-    # detailedStateInitWeight=1, so physical UA starts the tube a few K cold.
-    assert abs(float(row0[hx_dn_col])) < 20.0
+    # The promoted corrected-model tables carry the finite-UA HX node states,
+    # so the tube starts at rest: measured |der(T_TN1)(0)| <= 3.3e-8 K/s over
+    # 1R/9R at 0.1 and 1 MW (the former review-2026-09 tables, with
+    # T_TN≈T_SN, kicked it by up to ~20 K/s).
+    assert abs(float(row0[hx_dn_col])) < 1e-4
     # Fast tube-node kick plus slower secondary-loop tail; require strong
     # decay of that IC imbalance by t=50 s.
     idx_t50 = (data["time"] - 50.0).abs().idxmin()
@@ -327,7 +501,7 @@ def test_nominal_frequency_initialization_near_equilibrium(
     rel_delta_n_10 = abs(float(row10[n_col]) - n0) / n_scale
     rel_delta_n_50 = abs(float(row50[n_col]) - n0) / n_scale
     assert rel_delta_n_10 < NOMINAL_INIT_REL_DELTA_N_TOL[core_model]
-    assert rel_delta_n_50 < NOMINAL_INIT_REL_DELTA_N_T50_TOL
+    assert rel_delta_n_50 < NOMINAL_INIT_REL_DELTA_N_T50_TOL[core_model]
     assert abs(float(row50[dn_col])) / n_scale < NOMINAL_INIT_REL_DN_RATE_TOL
 
 
@@ -430,3 +604,78 @@ def test_nominal_trim_emits_feedback_signals(tmp_path: Path, core_model: str) ->
 
     assert has_total_feedback, "Missing any *TotalTempFeedback column"
     assert has_external_reactivity, "Missing any *externalReactivityIn column"
+
+
+def test_uhx_trip_wrapper_demand_scales_with_power_level(tmp_path: Path) -> None:
+    """TASK-20260909-01 P6 runtime evidence (lumped wrapper): the UHX-trip
+    vehicle run at ``-override=powerLevel=0.1`` must demand 100 kW (1e5 W)
+    at the UHX before the t = 4000 s demand drop.
+
+    The trip wrapper's two-step demand is
+    ``uhxDemandAmplitude = {powerLevel * MSRR_PlantData.nominalPower, 0}``
+    (fix SHA 28f1193); the Stepper holds amplitude[1] over (0, 4000) s and
+    ``uhx.powRm = powDemand.R * realToPow`` is an algebraic parameter-driven
+    signal, so every sampled point in (1, 60] s must read exactly
+    0.1 x 1e6 = 1e5 W. Fail-closed in both directions: the pre-fix literal
+    ``{MSRR_PlantData.nominalPower, 0}`` reads 1e6 W here (10x
+    over-extraction at a 100 kW operating point), and a silently rejected
+    override (default powerLevel = 1) reads 1e6 W too. The default
+    powerLevel = 1 makes the fixed expression identical to the pre-fix
+    literal (algebraic identity 1*x == x), so the qualified review-2026-09
+    baseline is unaffected; the expected number derives from the plant data
+    (nominalPower = 1e6 W), never from simulation output. OpenModelica's
+    initialization snapshot pair (t = 0 and the t ~ 1e-10 pre/post-init
+    evaluation) legitimately reads zero -- the Stepper emits amplitude[1]
+    only for time > stepTime[1] = 0 -- so the pin starts at t = 1 s.
+    """
+    workdir = _prepare_workspace(tmp_path)
+    power_level = 0.1
+
+    csv_path, output = _simulate(
+        workdir=workdir,
+        model_name="MSRR.MSRRuhxTripThermalSS",
+        file_prefix="uhx_trip_p010",
+        stop_time=60.0,
+        number_of_intervals=60,
+        simflags=f"-override=powerLevel={power_level:.16g}",
+    )
+
+    assert (
+        "not possible to override the following quantity: powerLevel" not in output
+    ), (
+        "the powerLevel runtime override was rejected; the pin below would "
+        "then only re-pin the powerLevel = 1 default"
+    )
+
+    data = pd.read_csv(csv_path)
+    assert "uhx.powRm" in data.columns, (
+        f"Missing 'uhx.powRm' column; available: {list(data.columns)[:20]}..."
+    )
+    nominal_power_w = float(quantity_value(load_plant("msrr")["nominal_power"]))
+    expected_demand_w = power_level * nominal_power_w
+    assert expected_demand_w == pytest.approx(1e5), (
+        f"shared plant data moved: 0.1 x nominalPower = {expected_demand_w} W "
+        "(evidence target is 100 kW)"
+    )
+
+    # Every sampled point at t >= 1 s (well inside the pre-step plateau, far
+    # from the t = 4000 s drop) carries the scaled demand. The rows below
+    # 1 s are OpenModelica's initialization snapshot pair (t = 0 and the
+    # t ~ 1e-10 pre/post-init evaluation): the Stepper emits amplitude[1]
+    # only for time > stepTime[1] = 0, so those rows legitimately read zero.
+    window = data.loc[data["time"] >= 1.0, "uhx.powRm"].astype(float)
+    assert not window.empty, "no sampled points in the pre-step demand window"
+    assert (window - expected_demand_w).abs().max() <= 1e-6 * expected_demand_w, (
+        f"UHX demand in the pre-step window deviates from "
+        f"{expected_demand_w:.6e} W "
+        f"(max deviation {(window - expected_demand_w).abs().max():.6e} W): "
+        "the trip wrapper dropped the powerLevel factor from "
+        "uhxDemandAmplitude or the override was ignored"
+    )
+    assert float(data.iloc[-1]["time"]) >= 60.0 - 1e-3
+    print(
+        f"\n[uhx-trip-p010] {len(window)} sampled pre-step points, "
+        f"uhx.powRm = {window.iloc[-1]:.6e} W at t="
+        f"{float(data.iloc[-1]['time']):.1f} s == {power_level:g} x "
+        f"nominalPower ({nominal_power_w:.4e} W)"
+    )

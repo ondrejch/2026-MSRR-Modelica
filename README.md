@@ -2,16 +2,26 @@
 
 Modelica models and Python tooling for MSRR startup, frequency-response, and transient studies.
 
+**New here?** Start with [GETTING_STARTED.md](GETTING_STARTED.md): install, check, and three first runs in about 15 minutes.
+
+> **Design basis.** The models and the committed initialization tables use
+> the MSRR PSAR design basis (model version `psar-basis-2026-10-01`):
+> `core/init/setpoints_*.csv` are the PSAR-basis tables of campaign
+> `psar-2026-10-01` (see `core/init/README.md`), which also reran startup,
+> transients and the frequency response on that basis.
+
 ## Repository Structure
 
 - `core/`: shared Modelica sources used by all workflows.
   - `core/SMD_MSR_Modelica.mo`: component library (nuclear kinetics, heat transport, pumps, signals).
   - `core/MSRR.mo`: system models with both 1-region and 9-region core variants.
-  - `core/init/`: steady-state setpoint table generator and CSV setpoint tables.
+  - `core/generated/`: plant-data Modelica packages emitted from `data/plants/` (do not edit by hand; regenerate with `python3.12 -m helpers.emit_modelica_plant --catalog`).
+  - `core/init/`: steady-state setpoint table generator, the qualified CSV setpoint tables, and their model-version sidecars.
+- `data/`: plant parameter decks (`plants/`), scenario tables and the frequency-response gain prior (`scenarios/`), and their schemas.
 - `startup/`: startup-focused runners and plotting scripts.
 - `freq/`: nominal frequency sweep, collection, and plotting workflows; `sensitivity/` holds the hA-exponent frequency sensitivity study.
 - `transients/`: nonlinear transient runners, plotting, and the `sensitivity/` property study.
-- `helpers/`: provenance library (`run_results.py`) and remote OpenModelica dispatch helpers (`omc_gw/`).
+- `helpers/`: plant and scenario loaders, provenance and setpoint-binding libraries, remote OpenModelica dispatch helpers (`omc_gw/`), and the paper reproduction campaign driver (`paper-rerun/`).
 - `tests/`: OpenModelica integration tests and pure-Python unit tests.
 
 ## Main Model Variants (Core)
@@ -167,9 +177,18 @@ runner settings in `runFreqNominalParallel.py`:
   - minimum `10` intervals/s
   - target `6` samples per forcing period
   - `output_step_max=50 s`
-- perturbation amplitude with `--sin_mag_auto`:
-  - `power <= 1e-2` and `omega <= 1e-2 rad/s`: `sin_mag=1 pcm`
-  - `power <= 1e-3`: `sin_mag=1 pcm` for all bins
+- perturbation amplitude with `--sin_mag_auto`: per-frequency amplitude for
+  a 1 % relative power swing from the committed gain prior
+  (`data/scenarios/freq/fr_gain_prior.json`, clamped to 0.01–10 pcm); the
+  historical 1 pcm low-power caps apply only under
+  `--sin_mag_auto_rule inverse_power`
+- settling discard (rule `settle_prior_v2`, per frequency, no cap): the fit
+  window opens `T_d = ceil(3 / min(zeta*omega_n, 5e-4 1/s))` after the
+  perturbation start (about 2.2e7 s / 1.6e7 s of forcing at 1e-5 MW for
+  1R / 9R), and `min_cycles_after_ss` counts cycles after it; at the low
+  powers where the resonance decays slower than the 5e-4 1/s floor, points
+  with `omega >= 120 omega_n` discard only `ceil(3 / 5e-4 1/s)` = 6000 s and
+  fit a shorter window with a linear trend term (the drift regime)
 - collection:
   - use the full post-forcing window implied by each run's `stop_time`
 

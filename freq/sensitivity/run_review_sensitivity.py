@@ -37,6 +37,9 @@ Outputs (under ``00runs/sensitivity-review-2026-09/freq/`` by default):
 ``sensitivity_metrics.csv`` (gain/phase per case plus gain/phase shift vs
 the hAExp = 0.33 baseline at the same frequency and flow), ``summary.md``,
 and ``metadata.json`` (git commit, omc version, solver, tolerance, grids).
+A failing case is recorded (metadata ``failures`` + stderr) without losing
+the other cases' results: outputs are always written at the end, and the
+script exits nonzero when any case failed.
 
 Usage
 -----
@@ -53,6 +56,7 @@ import csv
 import json
 import math
 import shlex
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -66,8 +70,10 @@ try:
         clean_column_headers,
         compute_effective_stop_time,
         compute_number_of_intervals,
+        csv_reaches_stop_time,
         find_power_column,
         fit_sine_least_squares,
+        fit_window_convergence,
         load_steady_state_overrides,
         phase_relative_to_perturbation_start_deg,
         wrap_phase_rad,
@@ -83,8 +89,10 @@ except ImportError:  # script-style execution
         clean_column_headers,
         compute_effective_stop_time,
         compute_number_of_intervals,
+        csv_reaches_stop_time,
         find_power_column,
         fit_sine_least_squares,
+        fit_window_convergence,
         load_steady_state_overrides,
         phase_relative_to_perturbation_start_deg,
         wrap_phase_rad,
@@ -111,6 +119,20 @@ DEFAULT_FLOW_FRACTIONS = (1.0, 0.66)
 #: Result columns kept by the omc -variableFilter (regex).
 VARIABLE_FILTER = r"^(time|.*n_population\.n)$"
 
+#: omc echoes this prefix (one line per quantity) when an ``-override=``
+#: quantity could not be set. Rejections of the study-varied parameters below
+#: invalidate the case (the echo may use the full override path
+#: (``core1R.fuelchannel.hAExp``) or a bare name (``hAExp``), so both
+#: spellings are matched); rejections of payload entries already at their
+#: model default (e.g. ``heatLossEnabled``) are benign and tolerated exactly
+#: as the production sweep tolerates them.
+OVERRIDE_REJECT_MARKER = "not possible to override the following quantity:"
+
+#: The physics parameters this study varies; omc rejection of any of them
+#: (echoed as a full path or a bare name) means the case would run with
+#: different physics than planned.
+VARIED_OVERRIDE_QUANTITIES = ("core1R.fuelchannel.hAExp", "heatExchanger.hAExp")
+
 METRICS_FIELDS = (
     "case_id",
     "freq_rad_s",
@@ -118,11 +140,14 @@ METRICS_FIELDS = (
     "flow_fraction",
     "sin_mag_pcm",
     "stop_time_s",
+    "settle_discard_s",
     "gain",
     "gain_dB",
     "phase_deg",
     "r_squared",
     "n_cycles",
+    "conv_gain_rel_diff",
+    "conv_phase_diff_deg",
     "delta_gain_dB_vs_baseline",
     "delta_phase_deg_vs_baseline",
 )
@@ -183,6 +208,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=2000.0,
         help="Perturbation start / settle time [s] (default: 2000)",
+    )
+    parser.add_argument(
+        "--settle_discard",
+        type=float,
+        default=0.0,
+        help=(
+            "Settling discard after the perturbation start [s]: the fit window "
+            "opens at ss_time + settle_discard and the stop time is extended "
+            "so it still spans --min_cycles_after_ss periods (default: 0, the "
+            "historical fit from the perturbation start; the corrected "
+            "frequency-response protocol uses 6000 s at 1 MW)"
+        ),
     )
     parser.add_argument(
         "--min_cycles_after_ss",
@@ -249,6 +286,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--base_stop_time must exceed --ss_time (> 0)")
     if args.min_cycles_after_ss <= 0:
         parser.error("--min_cycles_after_ss must be > 0")
+    if not (math.isfinite(args.settle_discard) and args.settle_discard >= 0):
+        parser.error("--settle_discard must be finite and >= 0")
     return args
 
 
@@ -290,6 +329,7 @@ def build_case_plan(args: argparse.Namespace) -> list[dict]:
                     ss_time=args.ss_time,
                     stop_time_mode="min_cycles_after_ss",
                     min_cycles_after_ss=args.min_cycles_after_ss,
+                    settle_discard_s=args.settle_discard,
                 )
                 intervals = compute_number_of_intervals(
                     float(freq),
@@ -344,6 +384,23 @@ def build_case_override(
     return ",".join(parts)
 
 
+def _override_rejections(stdout_text: str, watched: set[str]) -> list[str]:
+    """Study-varied quantities omc refused to override, in order.
+
+    omc echoes the quantity as a full override path (``heatExchanger.hAExp``)
+    or a bare name (``hAExp``); both spellings count as a match.
+    """
+    watched_bare = {key.rsplit(".", 1)[-1] for key in watched}
+    rejected: list[str] = []
+    for line in stdout_text.splitlines():
+        if OVERRIDE_REJECT_MARKER not in line:
+            continue
+        name = line.split(OVERRIDE_REJECT_MARKER, 1)[1].strip()
+        if name in watched or name.rsplit(".", 1)[-1] in watched_bare:
+            rejected.append(name)
+    return rejected
+
+
 def run_case(
     case: dict,
     args: argparse.Namespace,
@@ -364,11 +421,13 @@ def run_case(
     simflags = (
         f"-override={override} -variableFilter={shlex.quote(VARIABLE_FILTER)}"
     )
+    from helpers.plant_config import lumped_load_file_text, lumped_plant_data_path
+
+    plant_data_path = lumped_plant_data_path(library_path.parent)
     mos_text = (
         "// Generated by freq/sensitivity/run_review_sensitivity.py\n"
-        f'loadFile("{library_path}");\n'
-        f'loadFile("{model_path}");\n'
-        f"simulate({MODEL_NAME},"
+        + lumped_load_file_text([plant_data_path, library_path, model_path])
+        + f"simulate({MODEL_NAME},"
         "startTime=0,"
         f"stopTime={_fmt(case['stop_time'])},"
         f"numberOfIntervals={case['number_of_intervals']},"
@@ -408,14 +467,35 @@ def run_case(
             f"omc exited 0 but produced no result CSV for {case['case_id']}\n{tail}"
         )
     stdout_text = stdout_path.read_text(errors="ignore")
-    if "not possible to override the following quantity: core1R.fuelchannel.hAExp" in stdout_text:
-        raise RuntimeError(f"{case['case_id']}: hAExp override rejected by omc")
+    rejected = _override_rejections(stdout_text, set(VARIED_OVERRIDE_QUANTITIES))
+    if rejected:
+        raise RuntimeError(
+            f"{case['case_id']}: override rejected by omc: {', '.join(rejected)}"
+        )
+    if not csv_reaches_stop_time(str(csv_path), case["stop_time"]):
+        raise RuntimeError(
+            f"{case['case_id']}: result CSV does not reach stopTime="
+            f"{case['stop_time']:g} s (truncated run); refusing to fit"
+        )
 
     if not args.keep_build_artifacts:
         keep = {csv_path.name, mos_path.name, stdout_path.name, stderr_path.name}
         for entry in work_dir.iterdir():
-            if entry.name not in keep and entry.is_file():
-                entry.unlink()
+            if entry.name in keep:
+                continue
+            # rev022 M-4: best-effort cleanup -- a read-only file or a
+            # symlink-to-dir inside an omc build tree must not turn a
+            # SUCCESSFUL simulation into a case failure (the work_dir is
+            # per-case scratch).
+            try:
+                if entry.is_symlink():  # link-to-dir: unlink, never rmtree
+                    entry.unlink()
+                elif entry.is_dir():  # omc build directories, not just loose files
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink()
+            except OSError:
+                pass
     return csv_path
 
 
@@ -431,13 +511,19 @@ def fit_case(csv_path: Path, case: dict, args: argparse.Namespace) -> dict:
     time = sim_data["time"].to_numpy(dtype=float)
     power = sim_data[power_col].to_numpy(dtype=float)
 
-    fit_start = args.ss_time
+    settle_discard = float(getattr(args, "settle_discard", 0.0))
+    fit_start = args.ss_time + settle_discard
     mask = time >= fit_start
     fit = fit_sine_least_squares(
         time[mask] - fit_start,
         power[mask],
         case["freq_rad_s"],
         fit_trend=False,
+    )
+    # Two-halves agreement of the fit window (the corrected protocol's
+    # settling check; freq/_common.py fit_window_convergence).
+    halves = fit_window_convergence(
+        time[mask] - fit_start, power[mask], case["freq_rad_s"], trend_order=0
     )
     if not fit.ok or fit.amplitude is None or fit.phase_rad is None:
         raise RuntimeError(
@@ -459,11 +545,14 @@ def fit_case(csv_path: Path, case: dict, args: argparse.Namespace) -> dict:
         "flow_fraction": case["flow_fraction"],
         "sin_mag_pcm": args.sin_mag,
         "stop_time_s": case["stop_time"],
+        "settle_discard_s": settle_discard,
         "gain": gain,
         "gain_dB": gain_db,
         "phase_deg": phase_deg,
         "r_squared": fit.r_squared,
         "n_cycles": fit.n_cycles,
+        "conv_gain_rel_diff": float(halves.get("gain_rel_diff", math.nan)),
+        "conv_phase_diff_deg": float(halves.get("phase_diff_deg", math.nan)),
         "delta_gain_dB_vs_baseline": math.nan,
         "delta_phase_deg_vs_baseline": math.nan,
     }
@@ -497,7 +586,10 @@ def write_summary_markdown(rows: list[dict], out_path: Path, args: argparse.Name
     lines = [
         "# 1R frequency-response sensitivity to the hA exponent (1.0 MW)",
         "",
-        f"Perturbation: {args.sin_mag:g} pcm sine from t = {args.ss_time:g} s; "
+        f"Perturbation: {args.sin_mag:g} pcm sine from t = {args.ss_time:g} s, "
+        f"fit from t = {args.ss_time + args.settle_discard:g} s "
+        f"(settling discard {args.settle_discard:g} s), solver tolerance "
+        f"{args.tolerance:g}; "
         f"model `{MODEL_NAME}`; shifts are vs the hAExp = {BASELINE_EXPONENT:g} "
         "baseline at the same frequency and flow.",
         "",
@@ -506,8 +598,8 @@ def write_summary_markdown(rows: list[dict], out_path: Path, args: argparse.Name
         "observable sensitivity.",
         "",
         "| case | freq [rad/s] | hAExp | FF | gain [dB] | phase [deg] "
-        "| dGain [dB] | dPhase [deg] | R^2 |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| dGain [dB] | dPhase [deg] | R^2 | halves dG | halves dphi [deg] |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         def num(key: str, fmt: str = ".4g") -> str:
@@ -520,13 +612,18 @@ def write_summary_markdown(rows: list[dict], out_path: Path, args: argparse.Name
             f"| {row['case_id']} | {row['freq_rad_s']:g} | {row['hAExp']:g} "
             f"| {row['flow_fraction']:g} | {num('gain_dB')} | {num('phase_deg')} "
             f"| {num('delta_gain_dB_vs_baseline')} "
-            f"| {num('delta_phase_deg_vs_baseline')} | {num('r_squared', '.6f')} |"
+            f"| {num('delta_phase_deg_vs_baseline')} | {num('r_squared', '.6f')} "
+            f"| {num('conv_gain_rel_diff', '.2e')} | {num('conv_phase_diff_deg', '.3f')} |"
         )
     out_path.write_text("\n".join(lines) + "\n")
 
 
 def write_metadata(
-    out_dir: Path, args: argparse.Namespace, plan: list[dict], setpoint_table: Path
+    out_dir: Path,
+    args: argparse.Namespace,
+    plan: list[dict],
+    setpoint_table: Path,
+    failures: list[dict] | None = None,
 ) -> None:
     rr = _run_results()
     metadata = {
@@ -535,12 +632,14 @@ def write_metadata(
         "task": "TASK-20260901-01 Phase 1 (reviewer item R1.3a)",
         "argv": sys.argv[1:],
         "git_info": rr.collect_git_info(REPO_ROOT),
-        "omc_version": rr.probe_omc_version(),
+        # Probe the exact --omc binary the cases ran with, not PATH omc.
+        "omc_version": rr.probe_omc_version(omc_executable=str(args.omc)),
         "model_name": MODEL_NAME,
         "solver": "dassl",
         "tolerance": args.tolerance,
         "sin_mag_pcm": args.sin_mag,
         "ss_time_s": args.ss_time,
+        "settle_discard_s": args.settle_discard,
         "min_cycles_after_ss": args.min_cycles_after_ss,
         "base_stop_time_s": args.base_stop_time,
         "output_intervals_per_second": args.output_intervals_per_second,
@@ -556,6 +655,7 @@ def write_metadata(
               "number_of_intervals")}
             for case in plan
         ],
+        "failures": list(failures or []),
         "notes": [
             "FF=1 rows are exactly invariant in hAExp (power law normalized "
             "at nominal flow).",
@@ -590,22 +690,37 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Sensitivity plan: {len(plan)} case(s) -> {out_dir}")
 
     rows: list[dict] = []
+    failures: list[dict] = []
     for index, case in enumerate(plan, start=1):
         print(
             f"[{index}/{len(plan)}] {case['case_id']} "
             f"(stop {case['stop_time']:g} s) ...",
             flush=True,
         )
-        csv_path = run_case(
-            case, args, steady_state_overrides, library_path, model_path, runs_dir
-        )
-        rows.append(fit_case(csv_path, case, args))
+        # One failing case must not lose the other cases' completed work:
+        # record the failure and keep going; outputs are always written.
+        try:
+            csv_path = run_case(
+                case, args, steady_state_overrides, library_path, model_path, runs_dir
+            )
+            rows.append(fit_case(csv_path, case, args))
+        except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+            message = f"{type(exc).__name__}: {exc}"
+            print(f"FAILED {case['case_id']}: {message}", file=sys.stderr, flush=True)
+            failures.append({"case_id": case["case_id"], "error": message})
 
     apply_baseline_shifts(rows)
     write_metrics_csv(rows, out_dir / "sensitivity_metrics.csv")
     write_summary_markdown(rows, out_dir / "summary.md", args)
-    write_metadata(out_dir, args, plan, setpoint_table)
+    write_metadata(out_dir, args, plan, setpoint_table, failures=failures)
     print(f"Wrote {len(rows)} metric rows to {out_dir / 'sensitivity_metrics.csv'}")
+    if failures:
+        print(
+            f"{len(failures)} of {len(plan)} case(s) failed; outputs written "
+            "anyway (failures recorded in metadata.json).",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

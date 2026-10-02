@@ -1,0 +1,149 @@
+# Primary salt loop. Named volume order is the connect sequence
+# core -> pipeCoreToDHRS -> DHRS -> pipeDHRStoHX -> HX primary -> pipeHXtoCore.
+# Sum of the five volumes is 0.1000004 m3 (plan quotes 0.100).
+vdot_fuel:
+  value: 0.0091923
+  unit: m3/s
+  doc: Nominal primary volumetric flow at pump FF = 1 (= mdot/rho_fuel; keep consistent with materials.fuel.rho).
+  source: "PSAR fuel mass flow 23.9 kg/s (ACU MSRR PSAR Rev. 0, Sec. 1.2.3.4) / 2600 kg/m3; TASK-20261001-01. Formerly 0.011493 m3/s (23.9 kg/s at 2079.45 kg/m3)."
+volumes:
+  pipeCoreToDHRS:
+    value: 2.4369e-3
+    unit: m3
+    doc: Pipe from core outlet to DHRS.
+    source: MSRR.R1MSRRuhx pipeCoreToDHRS.vol / SegmentedMSR.Reactors.volLoop1R[1]
+  DHRS:
+    value: 0.04
+    unit: m3
+    doc: Drain-heat-removal-system salt volume.
+    source: MSRR.R1MSRRuhx dhrs.vol / SegmentedMSR.Reactors.volLoop1R[2]
+  pipeDHRStoHX:
+    value: 4.8738e-3
+    unit: m3
+    doc: Pipe from DHRS to intermediate HX primary inlet.
+    source: MSRR.R1MSRRuhx pipeDHRStoHX.vol / SegmentedMSR.Reactors.volLoop1R[3]
+  HXprimary:
+    value: 0.045379
+    unit: m3
+    doc: Intermediate HX primary-side salt volume (also heatExchanger.vol_P).
+    source: MSRR.R1MSRRuhx heatExchanger.vol_P / SegmentedMSR.Reactors.volLoop1R[4]
+  pipeHXtoCore:
+    value: 7.3107e-3
+    unit: m3
+    doc: Pipe from HX primary outlet back to core inlet.
+    source: MSRR.R1MSRRuhx pipeHXtoCore.vol / SegmentedMSR.Reactors.volLoop1R[5]
+pipes:
+  pipeCoreToDHRS:
+    volFracNode:
+      value: 0.1
+      unit: "1"
+      doc: Node volume fraction for the pipe thermal nodes.
+    Ac:
+      value: 2.7321e-3
+      unit: m2
+    L:
+      value: 0.8919
+      unit: m
+    Ar:
+      value: 0.1653
+      unit: m2
+    e:
+      value: 0.08
+      unit: "1"
+    Tinf:
+      value: 644.4
+      unit: degC
+    T_0:
+      value: 580.41
+      unit: degC
+  pipeDHRStoHX:
+    volFracNode:
+      value: 0.01
+      unit: "1"
+    Ac:
+      value: 2.7321e-3
+      unit: m2
+    L:
+      value: 1.7839
+      unit: m
+    Ar:
+      value: 0.3305
+      unit: m2
+    e:
+      value: 0.08
+      unit: "1"
+    Tinf:
+      value: 644.4
+      unit: degC
+    T_0:
+      value: 580.41
+      unit: degC
+  pipeHXtoCore:
+    volFracNode:
+      value: 0.1
+      unit: "1"
+    Ac:
+      value: 2.7321e-3
+      unit: m2
+    L:
+      value: 2.6758
+      unit: m
+    Ar:
+      value: 0.4958
+      unit: m2
+    e:
+      value: 0.08
+      unit: "1"
+    Tinf:
+      value: 644.4
+      unit: degC
+    T_0:
+      value: 560.0
+      unit: degC
+dhrs:
+  tK:
+    value: 10.0
+    unit: s
+    doc: DHRS actuation time constant.
+    source: MSRR.R1MSRRuhx dhrs.DHRS_tK
+  max_remove:
+    value: 320000.0
+    unit: W
+    doc: DHRS maximum heat-removal rate.
+    source: MSRR.R1MSRRuhx dhrs.DHRS_MaxP_Rm
+  bleed:
+    value: 0.0
+    unit: W
+    doc: DHRS continuous bleed load.
+    source: MSRR.R1MSRRuhx dhrs.DHRS_P_Bleed
+  engage_time:
+    value: 1.0e6
+    unit: s
+    doc: Default DHRS engagement time on the production loop (trip vehicles override).
+    source: MSRR.R1MSRRuhx dhrs.DHRS_time
+  Ac:
+    value: 0.282743339
+    unit: m2
+  L:
+    value: 0.141471061
+    unit: m
+  Ar:
+    value: 0.266666667
+    unit: m2
+  e:
+    value: 0.08
+    unit: "1"
+  Tinf:
+    value: 644.5
+    unit: degC
+    doc: >
+      DHRS ambient temperature. 0.1 degC above the other Tinf nodes
+      (644.4): the historically observed production value (every legacy
+      R1MSRRuhx dhrs instantiation reads Tinf = 644.5; core/MSRR.mo binds
+      Tinf from this generated table, so "verbatim" here records the
+      long-standing value preserved unchanged, not a copy from Modelica
+      source); not normalized (rev021 finding #23).
+    source: MSRR.R1MSRRuhx dhrs.Tinf (historical value)
+  T_0:
+    value: 580.41
+    unit: degC

@@ -7,9 +7,14 @@ import argparse
 from pathlib import Path
 
 try:
+    from ._common import ensure_supported_python
     from .paths import default_startup_csv_path, default_startup_run_dir
-except ImportError:
+except ImportError:  # script-style execution from startup/
+    from _common import ensure_supported_python
     from paths import default_startup_csv_path, default_startup_run_dir
+
+
+ensure_supported_python()
 
 
 SCENARIO = "startup"
@@ -73,6 +78,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Directory for generated plot PNGs (default: same startup run directory)",
     )
+    parser.add_argument(
+        "--assume_current_normalization",
+        action="store_true",
+        help=(
+            "Interpret a result whose run manifest carries no source_normalization "
+            "record with the CURRENT plant deck's LAMBDA, nu, P, E_f and eta_S. "
+            "Without this flag such a result (e.g. a pre-2026-09-27 run, produced "
+            "with the retired 1.58e20 divisor) is refused."
+        ),
+    )
     args = parser.parse_args()
 
     if args.run_dir is None:
@@ -90,6 +105,90 @@ def parse_args() -> argparse.Namespace:
     if args.out_dir is None:
         args.out_dir = args.run_dir
     return args
+
+
+def startup_kinetics_constants() -> tuple[float, float, float]:
+    """(LAMBDA [s], N0, eta_S) from the plant deck -- the values the legacy
+    kinetics bind (MSRR_PlantData.Kinetics.LAMBDA / .nu / .energyPerFission /
+    .sourceEffectiveness and nominalPower). The model's normalized source is
+    eta_S*S/N0 with the full-power neutron population N0 = LAMBDA*nu*P/E_f
+    (physics review 2026-09-27; this plotter formerly hard-coded LAMBDA =
+    0.017 s, S = 1e6 n/s and the retired 1.58e20 divisor, ~1.2e7 off the
+    model's source term). eta_S = 1 is an unsourced unit-importance
+    assumption."""
+    try:
+        from helpers.plant_config import load_plant, quantity_value
+    except ImportError:  # direct-script execution outside the repo root
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from helpers.plant_config import load_plant, quantity_value
+    plant = load_plant("msrr")
+    lam = float(quantity_value(plant["kinetics"]["generation_time"]))
+    nu = float(quantity_value(plant["kinetics"]["nu"]))
+    power = float(quantity_value(plant["nominal_power"]))
+    energy = float(quantity_value(plant["poisons"]["energy_per_fission"]))
+    eta_s = float(quantity_value(plant["kinetics"]["source_effectiveness"]))
+    return lam, lam * nu * power / energy, eta_s
+
+
+def run_source_normalization(csv_path: Path, *, assume_current: bool = False) -> tuple[float, float, float]:
+    """(LAMBDA, N0, eta_S) the result at *csv_path* was produced with.
+
+    Read from the ``source_normalization`` record of the run manifest
+    sidecar next to the CSV (written by startup/runMSRR.py since the rev032
+    review). A result without it is refused unless *assume_current* is set,
+    in which case the current deck's constants are used (with a warning):
+    applying today's constants to a historical result silently would
+    misinterpret it.
+    """
+    import sys
+
+    try:
+        from helpers.run_results import read_manifest_sidecar
+    except ImportError:  # direct-script execution outside the repo root
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from helpers.run_results import read_manifest_sidecar
+    payload = read_manifest_sidecar(csv_path) or {}
+    manifest = payload.get("manifest") if isinstance(payload.get("manifest"), dict) else {}
+    record = manifest.get("source_normalization")
+    if isinstance(record, dict):
+        lam = float(record["generation_time_s"])
+        n0 = float(record["full_power_population"])
+        eta = float(record["source_effectiveness"])
+        expected = lam * float(record["nu"]) * float(record["nominal_power_w"]) / float(record["energy_per_fission_j"])
+        if not abs(n0 / expected - 1.0) < 1e-9:
+            raise ValueError(f"{csv_path}: manifest source_normalization is inconsistent (N0 != LAMBDA*nu*P/E_f)")
+        return lam, n0, eta
+    if not assume_current:
+        raise ValueError(
+            f"{csv_path}: its run manifest records no source_normalization, so the "
+            "constants it was produced with are unknown (a pre-2026-09-27 result used "
+            "the retired 1.58e20 divisor). Rerun it, or pass "
+            "--assume_current_normalization to interpret it with the current deck."
+        )
+    print(
+        f"WARNING: {csv_path}: no source_normalization in its manifest; using the "
+        "current plant deck's constants (--assume_current_normalization).",
+        file=sys.stderr,
+    )
+    return startup_kinetics_constants()
+
+
+def source_subtracted_reactivity(
+    n_normalized, source_rate, lam: float, n0_pop: float, eta_s: float = 1.0
+):
+    """Subcritical source-multiplication estimate of 1 - k ~ -rho: at a
+    source-driven steady state rho*n*N0/LAMBDA + eta_S*S = 0, so
+    -rho = LAMBDA*eta_S*S/N with N = n*N0 the absolute population. Samples
+    with no source are NaN (the estimate is undefined there)."""
+    import numpy as np
+
+    n_abs = np.asarray(n_normalized, dtype=float) * n0_pop
+    s = eta_s * np.broadcast_to(np.asarray(source_rate, dtype=float), n_abs.shape)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = np.where((s > 0) & (n_abs > 0), lam * s / n_abs, np.nan)
+    return out
 
 
 def main() -> int:
@@ -130,19 +229,36 @@ def main() -> int:
     if missing:
         raise KeyError(f"Missing required columns: {missing}")
 
-    mean_neutron_generation_time = 0.017
-    source_strength = 1e6
-    reference_neutron_flux = 1.58e20
+    generation_time, full_power_population, source_effectiveness = run_source_normalization(
+        csv_path, assume_current=bool(args.assume_current_normalization)
+    )
+    source_col = find_column(
+        columns=columns,
+        exact=("sourceRate",),
+        suffix=("core1r.sourcerate", "msre9r.sourcerate", "sourcerate"),
+    )
+    if source_col is None:
+        # No constant fallback (rev032 review): the source is switched during
+        # the startup schedule, so only the model's recorded rate is valid.
+        raise KeyError("Missing required column: sourceRate (the model's time-dependent source rate)")
+    source_rate = table[source_col].to_numpy(dtype=float)
 
     time_hours = table[time_col] / 3600.0
-    neutron_population = table[n_pop_col] * reference_neutron_flux
+    neutron_population = table[n_pop_col] * full_power_population
 
     t0_index = int(np.argmin(np.abs(time_hours - 1.9)))
-    n0 = neutron_population.iloc[t0_index]
+    # Clip the multiplication denominator like the sibling plotters: a
+    # zero sample at the reference time would otherwise put inf/NaN in
+    # the keff curves.
+    n0 = float(np.clip(neutron_population.iloc[t0_index], 1.0e-30, None))
     multiplication = neutron_population / n0
     keff_relative = 1.0 - (1.0 / multiplication)
-    keff_source_subtraction = 1.0 - (
-        (mean_neutron_generation_time * source_strength) / neutron_population
+    keff_source_subtraction = 1.0 - source_subtracted_reactivity(
+        table[n_pop_col].to_numpy(dtype=float),
+        source_rate,
+        generation_time,
+        full_power_population,
+        source_effectiveness,
     )
 
     x_ticks = list(range(31))
@@ -158,11 +274,11 @@ def main() -> int:
     plt.axvline(13.5, linestyle="--", linewidth=2)
     plt.axvline(19.5, linestyle="--", linewidth=2)
     plt.axvline(24.5, linestyle="--", linewidth=2)
-    plt.ylabel("Neutron Population")
-    plt.text(5, 3.7e6, "Phase 1", fontsize=14, color="#FF0000")
-    plt.text(16, 3.7e6, "Phase 2", fontsize=14, color="#FF0000")
-    plt.text(21, 3.7e6, "Phase 3", fontsize=14, color="#FF0000")
-    plt.text(26, 3.7e6, "Phase 4", fontsize=14, color="#FF0000")
+    plt.ylabel("Neutron population (n x N0)")
+    plt.text(5, 0.93, "Phase 1", fontsize=14, color="#FF0000", transform=plt.gca().get_xaxis_transform())
+    plt.text(16, 0.93, "Phase 2", fontsize=14, color="#FF0000", transform=plt.gca().get_xaxis_transform())
+    plt.text(21, 0.93, "Phase 3", fontsize=14, color="#FF0000", transform=plt.gca().get_xaxis_transform())
+    plt.text(26, 0.93, "Phase 4", fontsize=14, color="#FF0000", transform=plt.gca().get_xaxis_transform())
     plt.xticks(x_ticks)
     plt.xlabel("Time [h]")
     plt.xlim([0, 29])
@@ -263,4 +379,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except (KeyError, ValueError) as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(2) from None

@@ -50,6 +50,29 @@ that does not clear the fit start.  --fit_start_allow_pre_forcing is the
 separately named, explicitly unsafe diagnostic override; every aggregate
 row produced through it is labeled non_transfer_function=True.
 
+FR protocol (settling discard, freq/fr_protocol.py): each fit window opens
+at the per-case settling fit start recorded by the runner (request case
+``fit_start_s``, cross-checked against the case manifest's
+``fr_protocol.settle.fit_start_s``; the perturbation start when neither
+records one).  An explicit --fit_start inside the recorded discard is
+refused unless --fit_start_allow_pre_settle labels the rows
+unsettled_fit_window=True.  Every fitted point gets a two-halves
+convergence check (gain per fitted mean power, phase, operating point
+|c0/P - 1|); the metrics and the converged verdict are recorded per row and
+summarized in the collection manifest's ``convergence`` section, and
+--require_convergence turns non-converged points into failures.
+Settle-capped cases are fitted with a linear trend unless
+--no_auto_fit_trend.  Lock-in cases (request ``fit_estimator`` =
+``lockin_local_mean_v1``, freq/lockin.py) are measured relative to the
+one-period local mean power, which rejects the slow free mode; their
+halves, R^2, H2/H1, and swing come from that fit, and the operating-point
+bound is --convergence_drift_operating_point_tol.  Every accepted case manifest is bound to the base
+request's parent identity (freq/sweep_manifest.py; status
+``parent_identity_mismatch``), and refinement rounds must carry that
+identity too (freq/refinement.py), so a sweep whose every point was
+superseded by rounds from another checkout, setpoint table, tolerance, or
+OpenModelica build cannot aggregate.
+
 The aggregate itself is published as one claimed, self-verifying
 generation.  The collector first takes an aggregate-level claim on the
 ``FreqResponseResults`` basename (the ``FreqResponseResults.claim``
@@ -106,29 +129,79 @@ import pandas as pd
 
 try:
     from ._common import (
+        CONVERGENCE_DRIFT_OPERATING_POINT_TOL,
+        DEFAULT_PACKAGE,
+        PACKAGE_CHOICES,
+        SEGMENTED_PACKAGE,
+        CONVERGENCE_GAIN_TOL,
+        CONVERGENCE_OPERATING_POINT_TOL,
+        CONVERGENCE_PHASE_TOL_DEG,
         clean_column_headers,
+        convergence_verdict,
         find_power_column,
         fit_sine_least_squares,
+        fit_window_convergence,
         format_frequency_key,
+        frequency_case_dir_name,
+        frequency_file_prefix,
         format_matlab_assignment,
         phase_relative_to_perturbation_start_deg,
         read_run_params,
+        resolve_trend_order,
         wrap_phase_rad,
     )
     from .paths import default_freq_case_dir
+    from .fr_protocol import (
+        FIT_ESTIMATOR_CHOICES,
+        FIT_ESTIMATOR_LOCKIN,
+        FIT_ESTIMATOR_SINE_LS,
+        GAIN_REFERENCE_LOCAL_MEAN,
+        GAIN_REFERENCE_NOMINAL,
+        GAIN_REFERENCE_WINDOW_MEAN,
+        RELAXED_OPERATING_POINT_REFERENCES,
+        SWING_BAND,
+        swing_verdict,
+    )
+    from . import lockin
+    from . import refinement
     from . import sweep_manifest
 except ImportError:
     from _common import (
+        CONVERGENCE_DRIFT_OPERATING_POINT_TOL,
+        DEFAULT_PACKAGE,
+        PACKAGE_CHOICES,
+        SEGMENTED_PACKAGE,
+        CONVERGENCE_GAIN_TOL,
+        CONVERGENCE_OPERATING_POINT_TOL,
+        CONVERGENCE_PHASE_TOL_DEG,
         clean_column_headers,
+        convergence_verdict,
         find_power_column,
         fit_sine_least_squares,
+        fit_window_convergence,
         format_frequency_key,
+        frequency_case_dir_name,
+        frequency_file_prefix,
         format_matlab_assignment,
         phase_relative_to_perturbation_start_deg,
         read_run_params,
+        resolve_trend_order,
         wrap_phase_rad,
     )
     from paths import default_freq_case_dir
+    from fr_protocol import (
+        FIT_ESTIMATOR_CHOICES,
+        FIT_ESTIMATOR_LOCKIN,
+        FIT_ESTIMATOR_SINE_LS,
+        GAIN_REFERENCE_LOCAL_MEAN,
+        GAIN_REFERENCE_NOMINAL,
+        GAIN_REFERENCE_WINDOW_MEAN,
+        RELAXED_OPERATING_POINT_REFERENCES,
+        SWING_BAND,
+        swing_verdict,
+    )
+    import lockin
+    import refinement
     import sweep_manifest
 
 
@@ -177,12 +250,19 @@ CASE_FOREIGN_CAMPAIGN = "foreign_campaign"
 CASE_REQUEST_MISMATCH = "request_mismatch"
 CASE_UNEXPECTED = "unexpected_case"
 CASE_FIT_FAILED = "fit_failed"
+#: The case manifest departs from the parent identity its base request
+#: records (freq/sweep_manifest.py ``manifest_request_differences``).
+CASE_PARENT_IDENTITY_MISMATCH = "parent_identity_mismatch"
 
 _CASE_ACCEPTED_STATUSES = frozenset({CASE_ACCEPTED, CASE_ACCEPTED_LEGACY})
 
 COLLECTION_STATUS_COMPLETE = "complete"
 COLLECTION_STATUS_PARTIAL = "partial"
 COLLECTION_STATUS_LEGACY = "legacy_unprovenanced"
+# Aborted before any aggregate was published (strict-failure abort path):
+# distinct from ``partial`` so failure records never imply that a labeled
+# partial aggregate exists next to an aborted collection.
+COLLECTION_STATUS_ABORTED = "aborted_no_aggregate"
 
 COLLECTION_MANIFEST_FILENAME = "FreqResponseResults.manifest.json"
 COLLECTION_MANIFEST_SCHEMA_VERSION = 2
@@ -278,10 +358,51 @@ class CaseAudit:
 
 
 def case_result_paths(results_dir: str, freq_point: float) -> tuple[str, str]:
-    """Work directory and result CSV path for one frequency case."""
-    work_path = os.path.join(results_dir, f"freq{freq_point:08.5f}")
-    file_prefix = f"MSRR_freq{freq_point:08.5f}"
+    """Work directory and result CSV path for one frequency case.
+
+    Names are built from the canonical frequency key (``.12g``: 12
+    significant digits), so frequencies distinct at that precision occupy
+    distinct slots; requests coinciding at 12 significant digits share a
+    key by construction and fail closed at the duplicate-key refusal.
+    """
+    work_path = os.path.join(results_dir, frequency_case_dir_name(freq_point))
+    file_prefix = frequency_file_prefix(freq_point)
     return work_path, os.path.join(work_path, f"{file_prefix}_res.csv")
+
+
+def case_directory_frequency(directory: Path) -> tuple[float | None, str | None]:
+    """Resolve the frequency of one campaign case directory.
+
+    Tries every ``*_res.csv`` sidecar's ``overrides['perturbationOmega']``
+    first; when no sidecar yields a parseable value, falls back to parsing
+    the directory name (``freq<omega>``) exactly like the unexpected-case
+    detection in :func:`main`. Returns ``(frequency, source_csv)`` with
+    ``frequency=None`` when the directory carries no result CSV or neither
+    resolution path yields a number (the directory is then not attributable
+    to any frequency). Shared with ``freq.verify_campaign`` so both tools
+    flag the same unexpected-case set.
+    """
+    csv_candidates = sorted(directory.glob("*_res.csv"))
+    if not csv_candidates:
+        return None, None
+    rr = _run_results()
+    parsed_frequency: float | None = None
+    for csv_candidate in csv_candidates:
+        payload = rr.read_manifest_sidecar(csv_candidate)
+        manifest = payload.get("manifest") if isinstance(payload, dict) else None
+        overrides = manifest.get("overrides") if isinstance(manifest, dict) else None
+        if isinstance(overrides, dict):
+            parsed_frequency = _as_float_or_none(
+                overrides.get("perturbationOmega")
+            )
+        if parsed_frequency is not None:
+            break
+    if parsed_frequency is None:
+        try:
+            parsed_frequency = float(directory.name.removeprefix("freq"))
+        except ValueError:
+            return None, str(csv_candidates[0])
+    return parsed_frequency, str(csv_candidates[0])
 
 
 def audit_case(
@@ -293,6 +414,7 @@ def audit_case(
     request_manifest: dict | None = None,
     expected_stop_time: float | None = None,
     expected_intervals: int | None = None,
+    expected_fit_start: float | None = None,
 ) -> CaseAudit:
     """Verify one requested frequency point against its sidecars and CSV.
 
@@ -314,9 +436,17 @@ def audit_case(
        expected sweep amplitude (else ``frequency_mismatch`` /
        ``amplitude_mismatch``).
 
+    With a request manifest, the recorded stop time, interval count, and
+    (when the request carries one) the settling fit start
+    (``expected_fit_start``) must also match the request case (else
+    ``request_mismatch``); see :func:`case_fit_start_problem`.
+
     With ``allow_legacy`` the two ``unprovenanced`` outcomes become
-    ``accepted_legacy_unprovenanced`` instead; rejections are never excused
-    by that flag.
+    ``accepted_legacy_unprovenanced`` instead **after** CSV structure
+    and numeric validation; that flag never waives required columns,
+    finite values, or other CSV-structure failures. Rejections
+    (fingerprint mismatch, content hash mismatch, validation failure)
+    are never excused.
     """
     rr = _run_results()
     key = format_frequency_key(freq_point)
@@ -343,8 +473,29 @@ def audit_case(
             audit.reason = reason
         return audit
 
+    def _csv_structure_failure() -> CaseAudit | None:
+        """Provenance waivers never skip CSV structure or numeric validity."""
+        report = rr.validate_result_csv(
+            data_file,
+            required_columns=COLLECT_VALIDATION_REQUIRED_COLUMNS,
+            time_column="time",
+            launch_timestamp=None,
+            requested_stop_time=None,
+            stop_time_slack_s=0.0,
+        )
+        if report.passed:
+            return None
+        audit.status = CASE_VALIDATION_FAILED
+        audit.reason = "revalidation failed: " + (
+            ", ".join(report.failed_checks) or "unknown"
+        )
+        return audit
+
     payload = rr.read_manifest_sidecar(data_file)
     if payload is None:
+        structural = _csv_structure_failure()
+        if structural is not None:
+            return structural
         return _accept_legacy(
             "manifest sidecar missing or unreadable "
             f"({rr.manifest_sidecar_path(data_file).name})"
@@ -370,6 +521,9 @@ def audit_case(
 
     validation_payload = rr.read_validation_report(data_file)
     if validation_payload is None:
+        structural = _csv_structure_failure()
+        if structural is not None:
+            return structural
         return _accept_legacy(
             "validation sidecar missing or unreadable "
             f"({rr.validation_report_path(data_file).name})"
@@ -377,6 +531,9 @@ def audit_case(
 
     recorded_hash = validation_payload.get("result_sha256")
     if not recorded_hash:
+        structural = _csv_structure_failure()
+        if structural is not None:
+            return structural
         return _accept_legacy(
             "validation sidecar predates result content hashing; CSV bytes "
             "cannot be tied to the validated report"
@@ -490,6 +647,33 @@ def audit_case(
                     f"match sweep request {int(expected_intervals)}"
                 )
                 return audit
+        if expected_fit_start is not None:
+            fit_start_problem = case_fit_start_problem(
+                stored_manifest, float(expected_fit_start)
+            )
+            if fit_start_problem:
+                audit.status = CASE_REQUEST_MISMATCH
+                audit.reason = fit_start_problem
+                return audit
+        # Per-case request-to-manifest binding (rev033 review): every
+        # estimator and amplitude decision the request case records must be
+        # the one the case manifest carries (freq/sweep_manifest.py
+        # CASE_MANIFEST_BINDINGS), before any fit or approval.
+        request_case = sweep_manifest.case_map(request_manifest).get(key)
+        if request_case is None:
+            audit.status = CASE_REQUEST_MISMATCH
+            audit.reason = f"sweep request lists no case {key}"
+            return audit
+        binding_problems = sweep_manifest.case_manifest_binding_problems(
+            request_manifest["request"], request_case, stored_manifest
+        )
+        if binding_problems:
+            audit.status = CASE_REQUEST_MISMATCH
+            audit.reason = (
+                "case manifest departs from its request case: "
+                + "; ".join(binding_problems)
+            )
+            return audit
 
     audit.status = CASE_ACCEPTED
     audit.manifest = stored_manifest
@@ -512,7 +696,9 @@ def sweep_common_fields(manifest: dict) -> dict:
         "source_files": manifest.get("source_files"),
         "workflow_python": manifest.get("workflow_python"),
         "solver": manifest.get("solver"),
-        "tolerance": manifest.get("tolerance"),
+        # The sweep tolerance (a halved or check case records a scaled one,
+        # tolerance_swing_scaled_v2; bound per case by audit_case).
+        "tolerance": sweep_manifest.base_equivalent_tolerance(manifest),
         "output_grid": manifest.get("output_grid"),
         "python_version": manifest.get("python_version"),
         "omc_version": manifest.get("omc_version"),
@@ -526,14 +712,68 @@ def sweep_common_fields(manifest: dict) -> dict:
     }
 
 
-def enforce_sweep_common_fields(audits: list[CaseAudit]) -> None:
+def manifest_fr_protocol(manifest: dict | None) -> dict:
+    """The per-case FR protocol record (settle + amplitude); {} when absent."""
+    if not isinstance(manifest, dict):
+        return {}
+    record = manifest.get("fr_protocol")
+    return record if isinstance(record, dict) else {}
+
+
+def manifest_fit_start(manifest: dict | None) -> float | None:
+    """Settling fit start recorded in a case manifest (None when absent)."""
+    settle = manifest_fr_protocol(manifest).get("settle")
+    if not isinstance(settle, dict):
+        return None
+    return _as_float_or_none(settle.get("fit_start_s"))
+
+
+def manifest_settle_capped(manifest: dict | None) -> bool:
+    settle = manifest_fr_protocol(manifest).get("settle")
+    return bool(isinstance(settle, dict) and settle.get("settle_capped"))
+
+
+def case_fit_start_problem(manifest: dict, expected_fit_start: float) -> str | None:
+    """Cross-check the request's fit start against one case manifest.
+
+    A manifest carrying an FR protocol record must record the same fit start
+    as the request case.  A manifest without one (segmented sweeps, sidecars
+    written before the settling discard existed) is consistent only when the
+    request's fit start is the perturbation start itself (no discard).
+    """
+    recorded = manifest_fit_start(manifest)
+    if recorded is None:
+        start = _as_float_or_none(
+            (manifest.get("overrides") or {}).get("perturbationStartTime")
+        )
+        if start is not None and math.isclose(
+            start, expected_fit_start, rel_tol=1e-12, abs_tol=1e-9
+        ):
+            return None
+        return (
+            "case manifest records no settling fit start while the sweep "
+            f"request opens the fit window at {expected_fit_start:g} s"
+        )
+    if not math.isclose(recorded, expected_fit_start, rel_tol=1e-12, abs_tol=1e-9):
+        return (
+            f"manifest fit start {recorded:g} s does not match the sweep "
+            f"request fit start {expected_fit_start:g} s"
+        )
+    return None
+
+
+def enforce_sweep_common_fields(
+    audits: list[CaseAudit], *, ignore_fields: tuple[str, ...] = ()
+) -> None:
     """Reject accepted cases whose sweep-common manifest fields disagree.
 
     The first accepted case carrying a manifest is the reference; every
     other accepted case must agree field-for-field (canonical-JSON equality,
     matching fingerprint semantics).  Disagreeing cases are downgraded to
     ``sweep_field_mismatch`` in place.  Cases without a manifest (legacy)
-    are skipped.
+    are skipped.  ``ignore_fields`` drops fields from the comparison; the
+    refinement path drops ``sweep_request`` because a refined case belongs
+    to its round's request, which :func:`audit_case` verifies per case.
     """
     rr = _run_results()
     reference: dict | None = None
@@ -542,6 +782,8 @@ def enforce_sweep_common_fields(audits: list[CaseAudit]) -> None:
         if not audit.accepted or audit.manifest is None:
             continue
         fields = sweep_common_fields(audit.manifest)
+        for name in ignore_fields:
+            fields.pop(name, None)
         if reference is None:
             reference = fields
             reference_freq = audit.freq
@@ -558,6 +800,34 @@ def enforce_sweep_common_fields(audits: list[CaseAudit]) -> None:
             audit.reason = (
                 "sweep-common fields differ from the reference case "
                 f"({reference_freq:g} rad/s): " + ", ".join(differing)
+            )
+
+
+def enforce_parent_identity(audits: list[CaseAudit], base_payload: dict | None) -> None:
+    """Bind every accepted case manifest to the BASE request's identity.
+
+    Complements :func:`enforce_sweep_common_fields` (cases agree with each
+    other) so that an effective case set taken entirely from refinement
+    rounds still has to match the base sweep: every accepted manifest must
+    carry the sources, workflow Python, Git state, tool versions, model and
+    setpoint identity, numerics, maturity labels, settle constants, and
+    case-common overrides the base request records
+    (``sweep_manifest.manifest_request_differences``).  Disagreeing cases
+    are downgraded to ``parent_identity_mismatch`` in place.
+    """
+    if base_payload is None:
+        return
+    request = base_payload["request"]
+    for audit in audits:
+        if not audit.accepted or audit.manifest is None:
+            continue
+        problems = sweep_manifest.manifest_request_differences(request, audit.manifest)
+        if problems:
+            audit.status = CASE_PARENT_IDENTITY_MISMATCH
+            audit.legacy = False
+            audit.reason = (
+                "case manifest departs from the base request's parent identity: "
+                + ", ".join(problems)
             )
 
 
@@ -628,7 +898,7 @@ def resolve_manifest_authority(audits: list[CaseAudit]) -> ManifestAuthority | N
             package=overrides.get("package"),
             source_files=manifest.get("source_files"),
             solver=manifest.get("solver"),
-            tolerance=_as_float_or_none(manifest.get("tolerance")),
+            tolerance=_as_float_or_none(sweep_manifest.base_equivalent_tolerance(manifest)),
             output_grid=manifest.get("output_grid"),
             omc_version=manifest.get("omc_version"),
             workflow_python=manifest.get("workflow_python"),
@@ -960,6 +1230,8 @@ def _render_plot_output(
     """
     rr = _run_results()
     scratch_dir = rr.default_quarantine_root().parent
+    # A fresh clone has no 00runs/tmp/ yet; mkstemp needs the directory.
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     descriptor, prepared_name = tempfile.mkstemp(
         prefix="smd-msrr-BodePlot.", suffix=".png", dir=str(scratch_dir)
     )
@@ -974,7 +1246,7 @@ def _render_plot_output(
         ax1.semilogx(
             frequencies, gains_db, "b-o", markersize=3, linewidth=1.2
         )
-        ax1.set_ylabel("Gain (dB)")
+        ax1.set_ylabel("Gain |dn/drho| (dB; n = P / 1 MW, rho in dk/k)")
         ax1.set_title(title)
         ax1.grid(True, which="both", linestyle="--", alpha=0.7)
         ax2.semilogx(
@@ -1099,8 +1371,11 @@ def _collector_python_hashes() -> dict[str, str]:
 
     Covers the collector module itself, ``freq/_common.py`` (the fitter and
     formatting helpers whose behavior the published values reflect),
-    ``freq/paths.py`` (results-directory resolution), and
-    ``helpers/run_results.py`` (the provenance/publication library).  This
+    ``freq/paths.py`` (results-directory resolution),
+    ``freq/sweep_manifest.py`` / ``freq/refinement.py`` (request and
+    refinement-round authority), ``freq/fr_protocol.py`` (estimator
+    constants), and ``helpers/run_results.py`` (the provenance/publication
+    library).  This
     section is separate from the per-case ``workflow_python`` hashes recorded
     by the sweep runner: it describes the COLLECTOR that produced the
     aggregate, not the runners that produced the case CSVs.
@@ -1114,6 +1389,8 @@ def _collector_python_hashes() -> dict[str, str]:
         here.parent / "_common.py",
         here.parent / "paths.py",
         here.parent / "sweep_manifest.py",
+        here.parent / "fr_protocol.py",
+        here.parent / "refinement.py",
         Path(rr.__file__).resolve(),
     ):
         resolved = path.resolve()
@@ -1195,6 +1472,13 @@ def verify_aggregate_outputs(
 
 def parse_args(argv: list[str] | None = None):
     repo_root = Path(__file__).resolve().parents[1]
+    # Shared core tables (the runner's lazy-import pattern; review
+    # 2026-10-01 M3): the collector accepts every core the runner sweeps.
+    try:
+        from helpers.scenario_config import CORE_CHOICES, SEGMENTED_ONLY_CORES
+    except ImportError:
+        sys.path.insert(0, str(repo_root))
+        from helpers.scenario_config import CORE_CHOICES, SEGMENTED_ONLY_CORES
     parser = argparse.ArgumentParser(
         description="Collect MSRR frequency response results and compute Bode plot data (parallel)."
     )
@@ -1204,15 +1488,41 @@ def parse_args(argv: list[str] | None = None):
         default=None,
         help=(
             "Path to the frequency response results directory "
-            "(default: 00runs/freq/<core_model>/power_<tag>)"
+            "(default: 00runs/freq/<core_model>/power_<tag>; with --package "
+            "segmented the runner's segmented default)"
         ),
     )
     parser.add_argument(
         "--core_model",
         type=str,
-        choices=("1r", "9r"),
+        choices=CORE_CHOICES,
         default="1r",
-        help="Core model used to derive default results_dir",
+        help=(
+            "Core model used to derive default results_dir (1r10seg and "
+            "r5x5_z10 exist only with --package segmented)"
+        ),
+    )
+    parser.add_argument(
+        "--package",
+        type=str,
+        choices=PACKAGE_CHOICES,
+        default=DEFAULT_PACKAGE,
+        help=(
+            "Package of the sweep, used only to derive the default "
+            "results_dir (default: legacy). The collected outputs do not "
+            "depend on it: the power column resolves from the CSV header "
+            "(segmented sweeps carry nOut)."
+        ),
+    )
+    parser.add_argument(
+        "--plant",
+        type=str,
+        default="msrr",
+        help=(
+            "Plant deck of the sweep (default: msrr). Only sets the default "
+            "--results_dir: a plant other than msrr reads "
+            "00runs/segmented/<plant>/freq/<core>/power_<tag>."
+        ),
     )
     parser.add_argument(
         "--power",
@@ -1277,14 +1587,28 @@ def parse_args(argv: list[str] | None = None):
         type=float,
         default=None,
         help=(
-            "Start time for fit window in seconds (default: perturbation "
-            "start from the verified case manifests; run_params.txt "
-            "ss_time when no provenanced case exists). Validated: a start "
-            "earlier than the perturbation start minus "
-            f"{FIT_START_PRE_FORCING_TOLERANCE_S:g} s is rejected with a "
-            "request-validation error before any fit; pass "
-            "--fit_start_allow_pre_forcing for the unsafe diagnostic "
-            "override."
+            "Start time for fit window in seconds (default: the per-case "
+            "settling fit start recorded in the immutable sweep request and "
+            "the verified case manifests -- the perturbation start plus the "
+            "settling discard -- or the perturbation start when no discard "
+            "is recorded; run_params.txt ss_time when no provenanced case "
+            "exists). Validated: a start earlier than the perturbation "
+            f"start minus {FIT_START_PRE_FORCING_TOLERANCE_S:g} s is "
+            "rejected with a request-validation error before any fit "
+            "(--fit_start_allow_pre_forcing is the unsafe diagnostic "
+            "override), and so is a start earlier than the recorded "
+            "settling fit start (--fit_start_allow_pre_settle)."
+        ),
+    )
+    parser.add_argument(
+        "--fit_start_allow_pre_settle",
+        action="store_true",
+        help=(
+            "DIAGNOSTIC: allow --fit_start to open the fit window inside "
+            "the recorded settling discard (after forcing starts, before "
+            "the switch-on transient has decayed). Affected rows are "
+            "labeled unsettled_fit_window=True in the aggregate CSV and "
+            "the collection manifest."
         ),
     )
     parser.add_argument(
@@ -1331,8 +1655,74 @@ def parse_args(argv: list[str] | None = None):
         "--fit_trend",
         action="store_true",
         help=(
-            "Include a linear trend term in each sine fit "
-            "(default: off — only offset plus sine terms are fitted)."
+            "Include (at least) a linear trend term in every sine fit "
+            "(default: off, except for cases whose sweep request records a "
+            "trend order -- drift-regime points of the settle_prior_v2 rule, "
+            "or settle-capped cases of older requests; see "
+            "--no_auto_fit_trend)."
+        ),
+    )
+    parser.add_argument(
+        "--no_auto_fit_trend",
+        action="store_true",
+        help=(
+            "Ignore the trend order recorded per case in the sweep request "
+            "(drift-regime points; settle-capped cases of older requests). "
+            "Diagnostic only: drift-regime points are designed around the "
+            "trend term."
+        ),
+    )
+    parser.add_argument(
+        "--convergence_gain_tol",
+        type=float,
+        default=CONVERGENCE_GAIN_TOL,
+        help=(
+            "Convergence check: maximum |relative gain difference| between "
+            "the two halves of the fit window, each normalized by its "
+            f"fitted mean power (default: {CONVERGENCE_GAIN_TOL:g})."
+        ),
+    )
+    parser.add_argument(
+        "--convergence_phase_tol_deg",
+        type=float,
+        default=CONVERGENCE_PHASE_TOL_DEG,
+        help=(
+            "Convergence check: maximum |phase difference| in degrees "
+            "between the two halves of the fit window "
+            f"(default: {CONVERGENCE_PHASE_TOL_DEG:g})."
+        ),
+    )
+    parser.add_argument(
+        "--convergence_operating_point_tol",
+        type=float,
+        default=CONVERGENCE_OPERATING_POINT_TOL,
+        help=(
+            "Convergence check: maximum |c0/P - 1| (fitted mean power vs "
+            "the manifest power) over the fit window "
+            f"(default: {CONVERGENCE_OPERATING_POINT_TOL:g})."
+        ),
+    )
+    parser.add_argument(
+        "--convergence_drift_operating_point_tol",
+        type=float,
+        default=CONVERGENCE_DRIFT_OPERATING_POINT_TOL,
+        help=(
+            "Convergence check for points whose gain is referenced to the "
+            "window-mean power (drift regime) or the local mean power "
+            "(lock-in regime): maximum |mean/P - 1|. The free-mode "
+            "excursion of the mean power does not bias those gains, so this "
+            "only bounds the linearization "
+            f"(default: {CONVERGENCE_DRIFT_OPERATING_POINT_TOL:g})."
+        ),
+    )
+    parser.add_argument(
+        "--require_convergence",
+        action="store_true",
+        help=(
+            "Treat a non-converged point as a failed fit (strict: the "
+            "collection then aborts unless --allow_partial). Default: "
+            "non-converged points stay in the aggregate, labeled "
+            "converged=False with the failed criteria."
         ),
     )
     parser.add_argument(
@@ -1373,12 +1763,30 @@ def parse_args(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     if args.claim_timeout_s is not None and args.claim_timeout_s <= 0:
         parser.error("--claim_timeout_s must be a positive number of seconds")
+    if args.n_jobs < 1:
+        parser.error("--n_jobs must be >= 1")
+    for name in (
+        "convergence_gain_tol",
+        "convergence_phase_tol_deg",
+        "convergence_operating_point_tol",
+        "convergence_drift_operating_point_tol",
+    ):
+        value = float(getattr(args, name))
+        if not math.isfinite(value) or value <= 0:
+            parser.error(f"--{name} must be finite and > 0")
+    if args.package != SEGMENTED_PACKAGE and args.core_model in SEGMENTED_ONLY_CORES:
+        parser.error(
+            f"--core_model {args.core_model} exists only with --package "
+            "segmented (the legacy package has no such vehicle)"
+        )
     if args.results_dir is None:
         args.results_dir = str(
             default_freq_case_dir(
                 repo_root,
                 core_model=args.core_model,
                 power=args.power,
+                package=args.package,
+                **({} if args.plant == "msrr" else {"plant": args.plant}),
             )
         )
     return args
@@ -1557,16 +1965,41 @@ def process_single_freq(freq_point: float, results_dir: str,
                         fit_start: float, fit_end: float | None,
                         *,
                         fit_trend: bool = False,
+                        trend_order: int | None = None,
+                        gain_reference: str = GAIN_REFERENCE_NOMINAL,
+                        fit_estimator: str = FIT_ESTIMATOR_SINE_LS,
                         fit_min_samples: int = 10,
                         fit_min_cycles: float = 0.25,
-                        fit_cond_max: float = 1e8) -> dict:
+                        fit_cond_max: float = 1e8,
+                        power_ref: float | None = None,
+                        conv_gain_tol: float = CONVERGENCE_GAIN_TOL,
+                        conv_phase_tol_deg: float = CONVERGENCE_PHASE_TOL_DEG,
+                        conv_operating_point_tol: float = (
+                            CONVERGENCE_OPERATING_POINT_TOL
+                        )) -> dict:
     """
     Read simulation CSV for a single frequency point, fit a sine wave,
     and return gain/phase results. Designed to be called by worker threads.
 
     The sine is fitted with the shared simultaneous linear least-squares
     fitter ``freq._common.fit_sine_least_squares`` (offset always estimated
-    with the sine coefficients; optional linear trend via ``fit_trend``).
+    with the sine coefficients; optional polynomial trend via
+    ``fit_trend`` / ``trend_order``).
+
+    ``gain_reference`` selects the gain estimator: ``nominal_power`` (the
+    historical ``A / drho``) or ``window_mean_power`` (drift-regime points:
+    ``A / drho * P / ybar`` with ``ybar`` the fitted trend's window mean and
+    ``P`` = ``power_ref``; the low-power kinetics are bilinear, so the
+    forced amplitude follows the mean power, freq/README.md "Drift
+    regime").  The operating-point offset is ``ybar / P - 1`` either way
+    (``c0 / P - 1`` without a quadratic term).
+
+    ``fit_estimator`` ``lockin_local_mean_v1`` (lock-in points; requires the
+    ``local_mean_power`` reference) replaces the raw-signal sine fit by
+    :func:`freq.lockin.lockin_fit`: the gain is ``A_r * P / drho`` with
+    ``A_r`` the amplitude of ``n / m - 1`` (``m`` the one-period local mean),
+    ``c0`` / ``window_mean_level`` is the time average of ``m``, and the
+    halves, R^2, H2/H1, and relative swing are those of the lock-in fit.
 
     Returns
     -------
@@ -1581,6 +2014,14 @@ def process_single_freq(freq_point: float, results_dir: str,
         own objective, the unweighted pair always carries the raw-sample values,
         and both are populated whenever the solve produced coefficients (they
         stay NaN on the earlier rejections).
+
+        Convergence metrics (successful fits): ``conv_gain_rel_diff``
+        (two-halves gain difference, each half normalized by its fitted mean
+        power), ``conv_gain_rel_diff_raw``, ``conv_phase_diff_deg``,
+        ``operating_point_offset`` (``c0 / power_ref - 1``; NaN without
+        ``power_ref``), ``h2_h1_ratio``, ``relative_swing`` (``A / c0``),
+        ``converged`` and ``convergence_reason`` from
+        ``freq._common.convergence_verdict`` with the given tolerances.
     """
     result = {
         'freq': freq_point, 'success': False, 'error': None,
@@ -1589,9 +2030,18 @@ def process_single_freq(freq_point: float, results_dir: str,
         'rejection_reason': None,
     }
 
-    work_path = os.path.join(results_dir, f"freq{freq_point:08.5f}")
-    file_prefix = f"MSRR_freq{freq_point:08.5f}"
-    data_file = os.path.join(work_path, f"{file_prefix}_res.csv")
+    work_path, data_file = case_result_paths(results_dir, freq_point)
+    result['fit_estimator'] = str(fit_estimator)
+    if fit_estimator not in FIT_ESTIMATOR_CHOICES:
+        result['error'] = f"unknown fit estimator {fit_estimator!r}"
+        return result
+    if (fit_estimator == FIT_ESTIMATOR_LOCKIN) != (gain_reference == GAIN_REFERENCE_LOCAL_MEAN):
+        result['error'] = (
+            f"fit estimator {fit_estimator!r} and gain reference "
+            f"{gain_reference!r} do not belong together (the lock-in "
+            "estimator and the local-mean reference go together)"
+        )
+        return result
 
     if not os.path.exists(data_file):
         result['error'] = "missing CSV"
@@ -1629,6 +2079,26 @@ def process_single_freq(freq_point: float, results_dir: str,
             result['error'] = "fit_end must be greater than fit_start"
             return result
 
+        if fit_estimator == FIT_ESTIMATOR_LOCKIN:
+            return _lockin_point(
+                result,
+                time.values,
+                power.values,
+                freq_point,
+                sin_mag=sin_mag,
+                ss_time=ss_time,
+                fit_start=fit_start,
+                fit_end=effective_fit_end,
+                trend_order=resolve_trend_order(fit_trend, trend_order),
+                fit_min_samples=fit_min_samples,
+                fit_min_cycles=fit_min_cycles,
+                fit_cond_max=fit_cond_max,
+                power_ref=power_ref,
+                conv_gain_tol=conv_gain_tol,
+                conv_phase_tol_deg=conv_phase_tol_deg,
+                conv_operating_point_tol=conv_operating_point_tol,
+            )
+
         mask = (time >= fit_start) & (time <= effective_fit_end)
         time_fit = time.loc[mask].values - fit_start
         power_fit = power.loc[mask].values
@@ -1645,11 +2115,12 @@ def process_single_freq(freq_point: float, results_dir: str,
 
         # Fit sine wave with frequency fixed using the shared simultaneous
         # linear least-squares fitter (offset fitted with the sine terms).
+        effective_trend_order = resolve_trend_order(fit_trend, trend_order)
         fit = fit_sine_least_squares(
             time_fit,
             power_fit,
             freq_point,
-            fit_trend=fit_trend,
+            trend_order=effective_trend_order,
             min_samples=fit_min_samples,
             min_cycles=fit_min_cycles,
             max_condition_number=fit_cond_max,
@@ -1686,6 +2157,25 @@ def process_single_freq(freq_point: float, results_dir: str,
         # Gain = output amplitude / input amplitude
         # Input is sin_mag pcm = sin_mag * 1E-5 in dk/k
         gain = amplitude / (sin_mag * 1e-5)
+        mean_level = float(fit.window_mean_level())
+        result['gain_reference'] = str(gain_reference)
+        result['window_mean_level'] = mean_level
+        if gain_reference == GAIN_REFERENCE_WINDOW_MEAN:
+            if (
+                power_ref is None
+                or not float(power_ref) > 0
+                or not math.isfinite(mean_level)
+                or mean_level <= 0
+            ):
+                result['error'] = (
+                    "window_mean_power gain reference needs a positive "
+                    "manifest power and fitted mean level"
+                )
+                return result
+            gain = gain * float(power_ref) / mean_level
+        elif gain_reference != GAIN_REFERENCE_NOMINAL:
+            result['error'] = f"unknown gain reference {gain_reference!r}"
+            return result
         gain_dB = 20.0 * np.log10(gain) if gain > 0 else -np.inf
         phase_deg = phase_relative_to_perturbation_start_deg(
             phase_rad=phase_rad,
@@ -1698,11 +2188,145 @@ def process_single_freq(freq_point: float, results_dir: str,
         result['gain_dB'] = gain_dB
         result['phase_deg'] = phase_deg
         result['r_squared'] = r_squared
+        result['fit_trend'] = bool(effective_trend_order >= 1)
+        result['fit_trend_order'] = int(effective_trend_order)
+        result['c2'] = float(fit.c2)
+
+        # Convergence (settling) check: the two halves of the fit window
+        # must agree, and the operating point must sit at the nominal power.
+        metrics = fit_window_convergence(
+            time_fit,
+            power_fit,
+            freq_point,
+            trend_order=effective_trend_order,
+            min_samples=fit_min_samples,
+            min_cycles=fit_min_cycles,
+            max_condition_number=fit_cond_max,
+        )
+        operating_point_offset = (
+            mean_level / float(power_ref) - 1.0
+            if power_ref is not None and float(power_ref) > 0
+            else None
+        )
+        converged, convergence_reason = convergence_verdict(
+            metrics,
+            operating_point_offset=operating_point_offset,
+            gain_tol=conv_gain_tol,
+            phase_tol_deg=conv_phase_tol_deg,
+            operating_point_tol=conv_operating_point_tol,
+        )
+        result['conv_gain_rel_diff'] = float(metrics['gain_rel_diff'])
+        result['conv_gain_rel_diff_raw'] = float(metrics['gain_rel_diff_raw'])
+        result['conv_phase_diff_deg'] = float(metrics['phase_diff_deg'])
+        result['h2_h1_ratio'] = float(metrics['h2_h1_ratio'])
+        result['operating_point_offset'] = (
+            float(operating_point_offset)
+            if operating_point_offset is not None
+            else float('nan')
+        )
+        result['relative_swing'] = (
+            amplitude / mean_level
+            if math.isfinite(mean_level) and mean_level > 0
+            else float('nan')
+        )
+        result['converged'] = bool(converged)
+        result['convergence_reason'] = convergence_reason
         result['success'] = True
 
     except Exception as e:
         result['error'] = str(e)
 
+    return result
+
+
+def _lockin_point(result: dict, time, power, freq_point: float, *,
+                  sin_mag: float, ss_time: float, fit_start: float,
+                  fit_end: float, trend_order: int, fit_min_samples: int,
+                  fit_min_cycles: float, fit_cond_max: float,
+                  power_ref: float | None, conv_gain_tol: float,
+                  conv_phase_tol_deg: float,
+                  conv_operating_point_tol: float) -> dict:
+    """Fill ``result`` with the lock-in estimate of one case (freq/lockin.py).
+
+    Same keys as the sine-fit path of :func:`process_single_freq`; the fit
+    diagnostics are those of the relative-fluctuation fit, ``c0`` is the
+    window average of the local mean, and ``c1`` / ``c2`` are 0.
+    """
+    if power_ref is None or not float(power_ref) > 0:
+        result['error'] = "local_mean_power gain reference needs a positive manifest power"
+        return result
+    time = np.asarray(time, dtype=float)
+    power = np.asarray(power, dtype=float)
+    period = 2.0 * math.pi / float(freq_point)
+    keep = (time >= float(fit_start) - period) & (time <= float(fit_end))
+    fit = lockin.lockin_fit(
+        time[keep],
+        power[keep],
+        freq_point,
+        fit_start=float(fit_start),
+        fit_end=float(fit_end),
+        perturbation_start=float(ss_time),
+        time_base=float(fit_start),
+        trend_order=int(trend_order),
+        min_samples=fit_min_samples,
+        min_cycles=fit_min_cycles,
+        max_condition_number=fit_cond_max,
+    )
+    result['lockin'] = fit.record()
+    sine = fit.fit
+    if sine is not None:
+        result['n_samples'] = sine.n_samples
+        result['residual_rms'] = sine.residual_rms
+        result['residual_rms_unweighted'] = sine.residual_rms_unweighted
+        result['r_squared_unweighted'] = sine.r_squared_unweighted
+        result['weighted_intervals'] = sine.weighted_intervals
+        result['uniformity_metric'] = sine.uniformity_metric
+        result['condition_number'] = sine.condition_number
+    result['n_cycles'] = float(fit.periods)
+    if not fit.ok:
+        result['rejection_reason'] = fit.rejection_reason
+        result['error'] = f"lock-in fit rejected: {fit.rejection_reason}"
+        return result
+    amplitude = float(fit.amplitude)
+    mean_level = float(fit.mean_level)
+    gain = amplitude * float(power_ref) / (sin_mag * 1e-5)
+    result['c0'] = mean_level
+    result['c1'] = 0.0
+    result['c2'] = 0.0
+    result['fit_start_fitted'] = float(fit.window_start)
+    result['fit_end_fitted'] = float(fit.window_end)
+    result['rejection_reason'] = None
+    result['gain_reference'] = GAIN_REFERENCE_LOCAL_MEAN
+    result['window_mean_level'] = mean_level
+    result['gain'] = gain
+    result['gain_dB'] = 20.0 * np.log10(gain) if gain > 0 else -np.inf
+    result['phase_deg'] = phase_relative_to_perturbation_start_deg(
+        phase_rad=float(fit.phase_rad),
+        freq_point=freq_point,
+        fit_start=fit_start,
+        perturbation_start=ss_time,
+    )
+    result['r_squared'] = sine.r_squared
+    result['fit_trend'] = bool(int(trend_order) >= 1)
+    result['fit_trend_order'] = int(trend_order)
+    metrics = dict(fit.halves)
+    operating_point_offset = mean_level / float(power_ref) - 1.0
+    converged, convergence_reason = convergence_verdict(
+        metrics,
+        operating_point_offset=operating_point_offset,
+        gain_tol=conv_gain_tol,
+        phase_tol_deg=conv_phase_tol_deg,
+        operating_point_tol=conv_operating_point_tol,
+    )
+    result['conv_gain_rel_diff'] = float(metrics.get('gain_rel_diff', math.nan))
+    result['conv_gain_rel_diff_raw'] = float(metrics.get('gain_rel_diff_raw', math.nan))
+    result['conv_phase_diff_deg'] = float(metrics.get('phase_diff_deg', math.nan))
+    result['h2_h1_ratio'] = float(fit.h2_h1_ratio)
+    result['operating_point_offset'] = float(operating_point_offset)
+    result['relative_swing'] = amplitude
+    result['converged'] = bool(converged)
+    result['convergence_reason'] = convergence_reason
+    result['success'] = True
     return result
 
 
@@ -1735,7 +2359,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
+    case_sources: dict[str, "refinement.CaseSource"] = {}
+    refine_rounds: list = []
     if request_payload is not None:
+        # Refinement rounds (freq/refinement.py): a key refined by a round
+        # takes its case from the highest round listing it, audited against
+        # that round's immutable request; a malformed round fails closed.
+        try:
+            case_sources, refine_rounds = refinement.resolve_case_sources(
+                results_dir, request_payload
+            )
+        except refinement.RefinementError as exc:
+            print(f"Refinement round validation failed: {exc}", file=sys.stderr)
+            return 2
         request = request_payload["request"]
         request_cases = list(request["cases"])
         freq_space = np.asarray(
@@ -1743,8 +2379,10 @@ def main(argv: list[str] | None = None) -> int:
             dtype=float,
         )
         requested_keys = [str(case["frequency_key"]) for case in request_cases]
+        # Effective case per key: the base request case, or the case of the
+        # latest refinement round that lists the key.
         request_case_by_key = {
-            str(case["frequency_key"]): case for case in request_cases
+            key: case_sources[key].case for key in requested_keys
         }
         num_freq = len(freq_space)
         freq_min = min(float(value) for value in freq_space)
@@ -1763,6 +2401,18 @@ def main(argv: list[str] | None = None) -> int:
             for key in requested_keys
         }
         ss_time = float(request["perturbation_start_time_s"])
+        # Settling fit-start authority (freq/fr_protocol.py): recorded per
+        # case by the runner; absent in requests written before the
+        # settling discard existed (fit start = perturbation start).
+        request_fit_start_by_key = {
+            key: float(request_case_by_key[key]["fit_start_s"])
+            for key in requested_keys
+            if request_case_by_key[key].get("fit_start_s") is not None
+        }
+        request_settle_capped_by_key = {
+            key: bool(request_case_by_key[key].get("settle_capped", False))
+            for key in requested_keys
+        }
         stop_time = None
         fit_end_limit = args.fit_end
         stop_time_mapping_selected = args.fit_end is None
@@ -1777,6 +2427,14 @@ def main(argv: list[str] | None = None) -> int:
                 "authority": True,
             }
         }
+        for info in refine_rounds:
+            round_request = info.directory / sweep_manifest.SWEEP_REQUEST_FILENAME
+            mapping_files[os.path.relpath(round_request, results_dir)] = {
+                "sha256": rr.file_sha256(str(round_request)),
+                "selected": True,
+                "authority": True,
+                "refinement_round": int(info.index),
+            }
         perturbation_policy = {
             "mode": (
                 "uniform" if len(unique_amplitudes) == 1
@@ -1848,8 +2506,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         request_authority = "legacy_run_params"
         request_cases = []
+        request_fit_start_by_key = {}
+        request_settle_capped_by_key = {}
 
     n_jobs = min(args.n_jobs, num_freq)
+
+    def case_results_dir(freq_point: float) -> str:
+        """Directory holding the case of one point (base or refinement round)."""
+        source = case_sources.get(format_frequency_key(freq_point))
+        return source.results_dir if source is not None else os.path.abspath(results_dir)
+
+    def case_request_payload(freq_point: float) -> dict | None:
+        """Request manifest that is the authority for one point's case."""
+        source = case_sources.get(format_frequency_key(freq_point))
+        return source.payload if source is not None else request_payload
 
     def expected_amplitude(freq_point: float) -> float:
         """Perturbation amplitude requested for one point."""
@@ -1902,10 +2572,10 @@ def main(argv: list[str] | None = None) -> int:
             executor.submit(
                 audit_case,
                 float(fp),
-                os.path.abspath(results_dir),
+                case_results_dir(float(fp)),
                 expected_amplitude(float(fp)),
                 allow_legacy=args.allow_legacy_unprovenanced,
-                request_manifest=request_payload,
+                request_manifest=case_request_payload(float(fp)),
                 expected_stop_time=(
                     float(
                         request_case_by_key[
@@ -1921,6 +2591,9 @@ def main(argv: list[str] | None = None) -> int:
                         ]["number_of_intervals"]
                     )
                     if request_payload is not None else None
+                ),
+                expected_fit_start=request_fit_start_by_key.get(
+                    format_frequency_key(float(fp))
                 ),
             ): idx
             for idx, fp in enumerate(freq_space)
@@ -1943,32 +2616,16 @@ def main(argv: list[str] | None = None) -> int:
         for directory in sorted(Path(results_dir).glob("freq*")):
             if not directory.is_dir():
                 continue
-            csv_candidates = sorted(directory.glob("*_res.csv"))
-            if not csv_candidates:
-                continue
-            parsed_frequency: float | None = None
-            for csv_candidate in csv_candidates:
-                payload = rr.read_manifest_sidecar(csv_candidate)
-                manifest = payload.get("manifest") if isinstance(payload, dict) else None
-                overrides = manifest.get("overrides") if isinstance(manifest, dict) else None
-                if isinstance(overrides, dict):
-                    parsed_frequency = _as_float_or_none(
-                        overrides.get("perturbationOmega")
-                    )
-                if parsed_frequency is not None:
-                    break
+            parsed_frequency, source_csv = case_directory_frequency(directory)
             if parsed_frequency is None:
-                try:
-                    parsed_frequency = float(directory.name.removeprefix("freq"))
-                except ValueError:
-                    continue
+                continue
             key = format_frequency_key(parsed_frequency)
             if key not in expected_key_set:
                 audits.append(
                     CaseAudit(
                         freq=float(parsed_frequency),
                         frequency_key=key,
-                        source_csv=str(csv_candidates[0]),
+                        source_csv=source_csv,
                         status=CASE_UNEXPECTED,
                         reason=(
                             "case is present in the campaign directory but is "
@@ -1976,8 +2633,33 @@ def main(argv: list[str] | None = None) -> int:
                         ),
                     )
                 )
+        for info in refine_rounds:
+            for directory in sorted(info.directory.glob("freq*")):
+                if not directory.is_dir():
+                    continue
+                parsed_frequency, source_csv = case_directory_frequency(directory)
+                if parsed_frequency is None:
+                    continue
+                key = format_frequency_key(parsed_frequency)
+                if key not in info.keys:
+                    audits.append(
+                        CaseAudit(
+                            freq=float(parsed_frequency),
+                            frequency_key=key,
+                            source_csv=source_csv,
+                            status=CASE_UNEXPECTED,
+                            reason=(
+                                f"case is present in refinement round "
+                                f"{info.index} but is not listed by that "
+                                "round's sweep request"
+                            ),
+                        )
+                    )
 
-    enforce_sweep_common_fields(audits)
+    enforce_sweep_common_fields(
+        audits, ignore_fields=("sweep_request",) if refine_rounds else ()
+    )
+    enforce_parent_identity(audits, request_payload)
 
     # ---- Manifest authority (C3): verified manifests are authoritative ----
     # The accepted manifests define the perturbation start (fit lower bound
@@ -2097,6 +2779,117 @@ def main(argv: list[str] | None = None) -> int:
         and args.fit_start < perturbation_start
     )
 
+    # ---- Settling fit-start authority (FR protocol A1) --------------------
+    # Every accepted case opens its fit window at the fit start recorded by
+    # the runner (perturbation start + settling discard): the immutable
+    # request case in normal mode, the verified case manifest in legacy-
+    # request mode, the perturbation start when neither records one.  A
+    # recorded start before forcing is a malformed request (exit 2); an
+    # explicit --fit_start inside the recorded discard is refused unless
+    # --fit_start_allow_pre_settle labels the affected rows.
+    recorded_fit_start_by_idx: dict[int, float] = {}
+    settle_capped_by_idx: dict[int, bool] = {}
+    settle_discard_by_idx: dict[int, float] = {}
+    for idx, audit in enumerate(audits):
+        if not audit.accepted:
+            continue
+        recorded = request_fit_start_by_key.get(audit.frequency_key)
+        if recorded is None:
+            recorded = manifest_fit_start(audit.manifest)
+        if recorded is None:
+            recorded = float(perturbation_start)
+        if recorded < perturbation_start - FIT_START_PRE_FORCING_TOLERANCE_S:
+            print(
+                "Fit window validation failed: the recorded settling fit "
+                f"start {recorded:g} s of {audit.frequency_key} rad/s is "
+                f"earlier than the perturbation start {perturbation_start:g} "
+                "s; malformed request",
+                file=sys.stderr,
+            )
+            return 2
+        recorded_fit_start_by_idx[idx] = float(recorded)
+        settle_capped_by_idx[idx] = bool(
+            request_settle_capped_by_key.get(audit.frequency_key, False)
+            or manifest_settle_capped(audit.manifest)
+        )
+        settle_discard_by_idx[idx] = float(recorded) - float(perturbation_start)
+    if args.fit_start is not None and not args.fit_start_allow_pre_settle:
+        inside = [
+            (audits[idx].frequency_key, recorded)
+            for idx, recorded in recorded_fit_start_by_idx.items()
+            if args.fit_start < recorded - FIT_START_PRE_FORCING_TOLERANCE_S
+        ]
+        if inside and not pre_forcing_fit:
+            first_key, first_start = inside[0]
+            print(
+                "Fit window validation failed: --fit_start "
+                f"{args.fit_start:g} s opens inside the recorded settling "
+                f"discard of {len(inside)} case(s) (e.g. {first_key} rad/s, "
+                f"recorded fit start {first_start:g} s); the switch-on "
+                "transient has not decayed there (use "
+                "--fit_start_allow_pre_settle for the diagnostic override).",
+                file=sys.stderr,
+            )
+            return 2
+    fit_start_by_idx: dict[int, float] = {
+        idx: (float(args.fit_start) if args.fit_start is not None else recorded)
+        for idx, recorded in recorded_fit_start_by_idx.items()
+    }
+    unsettled_by_idx: dict[int, bool] = {
+        idx: bool(
+            fit_start_by_idx[idx]
+            < recorded_fit_start_by_idx[idx] - FIT_START_PRE_FORCING_TOLERANCE_S
+        )
+        for idx in recorded_fit_start_by_idx
+    }
+    # Estimator per point (settle_prior_v2): the trend order and the gain
+    # reference recorded in the (round) request case select the fit; cases
+    # of older requests keep the historical rule (linear trend only for
+    # settle-capped cases).
+    recorded_trend_order_by_idx: dict[int, int] = {}
+    gain_reference_by_idx: dict[int, str] = {}
+    fit_estimator_by_idx: dict[int, str] = {}
+    settle_regime_by_idx: dict[int, str] = {}
+    for idx in recorded_fit_start_by_idx:
+        case = request_case_by_key.get(audits[idx].frequency_key) or {}
+        recorded_order = case.get("fit_trend_order")
+        if recorded_order is None:
+            recorded_order = 1 if settle_capped_by_idx.get(idx, False) else 0
+        recorded_trend_order_by_idx[idx] = int(recorded_order)
+        gain_reference_by_idx[idx] = str(
+            case.get("gain_reference") or GAIN_REFERENCE_NOMINAL
+        )
+        # The request records the estimator (lockin_local_mean_v1 goes with
+        # the local-mean reference); older requests are sine fits.
+        fit_estimator_by_idx[idx] = str(
+            case.get("fit_estimator")
+            or (
+                FIT_ESTIMATOR_LOCKIN
+                if gain_reference_by_idx[idx] == GAIN_REFERENCE_LOCAL_MEAN
+                else FIT_ESTIMATOR_SINE_LS
+            )
+        )
+        settle_regime_by_idx[idx] = str(
+            case.get("settle_regime")
+            or ("capped" if settle_capped_by_idx.get(idx, False) else "")
+        )
+    trend_order_by_idx: dict[int, int] = {
+        idx: max(
+            1 if args.fit_trend else 0,
+            0 if args.no_auto_fit_trend else recorded_trend_order_by_idx[idx],
+        )
+        for idx in recorded_fit_start_by_idx
+    }
+    auto_trend_by_idx: dict[int, bool] = {
+        idx: trend_order_by_idx[idx] >= 1 for idx in recorded_fit_start_by_idx
+    }
+    if fit_start_by_idx:
+        distinct_fit_starts = sorted(set(fit_start_by_idx.values()))
+        if args.fit_start is None:
+            fit_start = distinct_fit_starts[0]
+    else:
+        distinct_fit_starts = [float(fit_start)]
+
     # ---- Per-frequency fit-window validation (H1): request errors ---------
     # resolve_fit_window is applied to every accepted point BEFORE the fit
     # dispatch; a stop-time mapping entry (or an explicit --fit_end) that
@@ -2112,19 +2905,20 @@ def main(argv: list[str] | None = None) -> int:
             fp_limit = fit_end_limit
             if fp_limit is None and stop_time_map:
                 fp_limit = stop_time_map.get(audit.frequency_key)
+            case_fit_start = fit_start_by_idx.get(idx, fit_start)
             fp_fit_end, _window = resolve_fit_window(
                 freq_point=audit.freq,
-                fit_start=fit_start,
+                fit_start=case_fit_start,
                 fit_end_limit=fp_limit,
                 mode=args.fit_window_mode,
                 ref_freq=args.fit_window_ref_freq,
                 ref_duration=args.fit_window_ref_duration,
             )
-            if fp_fit_end is not None and fp_fit_end <= fit_start:
+            if fp_fit_end is not None and fp_fit_end <= case_fit_start:
                 raise MappingValidationError(
                     f"fit window for {audit.frequency_key} rad/s closes at "
                     f"{fp_fit_end:g} s, at or before the fit start "
-                    f"{fit_start:g} s (stop_time_by_freq.csv entry or "
+                    f"{case_fit_start:g} s (stop_time_by_freq.csv entry or "
                     "--fit_end); malformed request"
                 )
             fit_windows[idx] = fp_fit_end
@@ -2166,7 +2960,7 @@ def main(argv: list[str] | None = None) -> int:
                 results_dir,
                 audits,
                 counts,
-                COLLECTION_STATUS_PARTIAL,
+                COLLECTION_STATUS_ABORTED,
                 generation_id=generation_id,
                 quarantined_prior_artifacts=quarantine_records,
             )
@@ -2203,6 +2997,72 @@ def main(argv: list[str] | None = None) -> int:
     # fit_start was resolved and validated above, before any abort path or
     # worker dispatch.
     print(f"Phase reference: perturbation start at {perturbation_start:g} s")
+    if len(distinct_fit_starts) == 1:
+        discard = distinct_fit_starts[0] - float(perturbation_start)
+        print(
+            f"Fit start: {distinct_fit_starts[0]:g} s "
+            + (
+                f"(settling discard {discard:g} s after the perturbation start)"
+                if discard > FIT_START_PRE_FORCING_TOLERANCE_S
+                else "(perturbation start; no settling discard recorded)"
+            )
+        )
+    else:
+        print(
+            "Fit start: per case, "
+            f"{distinct_fit_starts[0]:g} to {distinct_fit_starts[-1]:g} s"
+        )
+    capped_count = sum(1 for flag in settle_capped_by_idx.values() if flag)
+    if capped_count:
+        print(
+            f"Settle-capped cases: {capped_count} (older request: discard "
+            "capped by the runner; linear trend "
+            + ("fitted automatically" if not args.no_auto_fit_trend else "NOT fitted (--no_auto_fit_trend)")
+            + ")"
+        )
+    drift_count = sum(
+        1 for value in gain_reference_by_idx.values()
+        if value == GAIN_REFERENCE_WINDOW_MEAN
+    )
+    lockin_count = sum(
+        1 for value in fit_estimator_by_idx.values() if value == FIT_ESTIMATOR_LOCKIN
+    )
+    if lockin_count:
+        print(
+            f"Lock-in points: {lockin_count} (forced fluctuation relative to the "
+            "one-period local mean power; |mean/P - 1| <= "
+            f"{args.convergence_drift_operating_point_tol:g})"
+        )
+    if drift_count:
+        print(
+            f"Drift-regime points: {drift_count} (trend order "
+            + ("as recorded" if not args.no_auto_fit_trend else "IGNORED (--no_auto_fit_trend)")
+            + "; gain referenced to the window-mean power; |mean/P - 1| <= "
+            f"{args.convergence_drift_operating_point_tol:g})"
+        )
+    refined_count = sum(
+        1 for source in case_sources.values() if source.refined
+    )
+    if refine_rounds:
+        print(
+            f"Refinement: {len(refine_rounds)} round(s); {refined_count} point(s) "
+            "taken from refinement rounds (see the refined / refine_round / "
+            "case_source columns)"
+        )
+    print(
+        "Convergence check: halves |dG| <= "
+        f"{args.convergence_gain_tol:g}, |dphase| <= "
+        f"{args.convergence_phase_tol_deg:g} deg, |c0/P - 1| <= "
+        f"{args.convergence_operating_point_tol:g}"
+        + (" (required)" if args.require_convergence else " (labeled)")
+    )
+    if any(unsettled_by_idx.values()):
+        print(
+            "WARNING: --fit_start_allow_pre_settle is active; "
+            f"{sum(1 for v in unsettled_by_idx.values() if v)} case(s) fit "
+            "inside the recorded settling discard (rows labeled "
+            "unsettled_fit_window=True)."
+        )
     if args.fit_window_mode == "fixed":
         if stop_time_map and args.fit_end is None:
             print(f"Fit window mode: fixed ({fit_start:g} to per-frequency end)")
@@ -2236,18 +3096,31 @@ def main(argv: list[str] | None = None) -> int:
         for idx, audit in enumerate(audits):
             if not audit.accepted:
                 continue
+            gain_reference = gain_reference_by_idx.get(idx, GAIN_REFERENCE_NOMINAL)
             future = executor.submit(
                 process_single_freq,
                 freq_point=audit.freq,
-                results_dir=os.path.abspath(results_dir),
+                results_dir=case_results_dir(audit.freq),
                 sin_mag=expected_amplitude(audit.freq),
                 ss_time=perturbation_start,
-                fit_start=fit_start,
+                fit_start=fit_start_by_idx.get(idx, fit_start),
                 fit_end=fit_windows[idx],
-                fit_trend=args.fit_trend,
+                trend_order=trend_order_by_idx.get(
+                    idx, 1 if args.fit_trend else 0
+                ),
+                gain_reference=gain_reference,
+                fit_estimator=fit_estimator_by_idx.get(idx, FIT_ESTIMATOR_SINE_LS),
                 fit_min_samples=args.fit_min_samples,
                 fit_min_cycles=args.fit_min_cycles,
                 fit_cond_max=args.fit_cond_max,
+                power_ref=_as_float_or_none(label_power),
+                conv_gain_tol=args.convergence_gain_tol,
+                conv_phase_tol_deg=args.convergence_phase_tol_deg,
+                conv_operating_point_tol=(
+                    args.convergence_drift_operating_point_tol
+                    if gain_reference in RELAXED_OPERATING_POINT_REFERENCES
+                    else args.convergence_operating_point_tol
+                ),
             )
             future_map[future] = idx
         for future in as_completed(future_map):
@@ -2277,14 +3150,25 @@ def main(argv: list[str] | None = None) -> int:
         if not fit_result.get("success"):
             audits[idx].status = CASE_FIT_FAILED
             audits[idx].reason = fit_result.get("error") or "sine fit failed"
+        elif args.require_convergence and not fit_result.get("converged", True):
+            # --require_convergence: a non-converged point is a failed fit
+            # (strict abort unless --allow_partial).
+            fit_result["success"] = False
+            fit_result["error"] = (
+                "fit not converged: "
+                + str(fit_result.get("convergence_reason") or "unknown")
+            )
+            audits[idx].status = CASE_FIT_FAILED
+            audits[idx].reason = fit_result["error"]
 
-    counts = collection_counts(audits)
+    counts = collection_counts(audits, requested_count=num_freq)
     if counts["failed"] and not args.allow_partial:
         return abort_without_aggregate()
 
     # Collect successful results (preserve frequency ordering)
     freq_list = []
     gain_list = []
+    gain_fractional_list = []
     phase_list = []
     gain_dB_list = []
     fit_quality = []
@@ -2301,12 +3185,191 @@ def main(argv: list[str] | None = None) -> int:
     condition_number_list = []
     c0_list = []
     c1_list = []
+    sin_mag_list = []
+    settle_discard_list = []
+    settle_capped_list = []
+    unsettled_list = []
+    fit_trend_list = []
+    conv_gain_list = []
+    conv_gain_raw_list = []
+    conv_phase_list = []
+    operating_point_list = []
+    h2_h1_list = []
+    relative_swing_list = []
+    converged_list = []
+    convergence_reason_list = []
+    convergence_points = []
+    trend_order_list = []
+    c2_list = []
+    gain_reference_list = []
+    fit_estimator_list = []
+    settle_regime_list = []
+    refined_list = []
+    refine_round_list = []
+    case_source_list = []
+    discard_history_list = []
+    target_swing_list = []
+    amplitude_halvings_list = []
+    swing_ratio_list = []
+    swing_check_list = []
+    swing_failures = []
+    # Realized-swing check (target-swing amplitude rule): the prior gain is
+    # not trusted -- every point's measured swing A / y_mean must lie in
+    # SWING_BAND x the target (clamped amplitudes exempt on their side).
+    fr_policy = (
+        ((request_payload or {}).get("request") or {}).get("policies") or {}
+    ).get("fr_protocol") or {}
+    swing_target = (
+        float(fr_policy["target_swing"])
+        if fr_policy.get("target_swing_rule_active") and fr_policy.get("target_swing")
+        else None
+    )
+
+    def _amplitude_clamp(idx: int) -> str | None:
+        # Exemption from the EFFECTIVE REQUEST case (rev033 review), never
+        # from the case manifest alone; audit_case has bound the manifest's
+        # clamp to it.  An undeterminable clamp grants no exemption.
+        key = audits[idx].frequency_key
+        source = case_sources.get(key)
+        case = request_case_by_key.get(key)
+        if case is None:
+            return None
+        payload = source.payload if source is not None else request_payload
+        if payload is None:
+            return None
+        clamp = sweep_manifest.case_amplitude_clamp(payload["request"], case)
+        return None if clamp == sweep_manifest.CLAMP_UNKNOWN else clamp
+
+    def _case_target(idx: int) -> tuple[float | None, int]:
+        # Effective target swing and halving count of the EFFECTIVE request
+        # case (an amplitude halving halves the target with the amplitude);
+        # requests that predate the fields target the policy swing.
+        key = audits[idx].frequency_key
+        source = case_sources.get(key)
+        case = request_case_by_key.get(key)
+        payload = source.payload if source is not None else request_payload
+        if case is None or payload is None:
+            return swing_target, 0
+        return (
+            sweep_manifest.case_target_swing(payload["request"], case),
+            sweep_manifest.case_amplitude_halvings(case),
+        )
+
+    def _source_fields(freq_point: float) -> tuple[bool, int, str, str]:
+        key = format_frequency_key(freq_point)
+        source = case_sources.get(key)
+        case_dir = frequency_case_dir_name(freq_point)
+        if source is None:
+            return False, 0, case_dir, ""
+        history = ";".join(
+            f"{float(entry['settle_discard_s']):.12g}" for entry in source.history
+        )
+        return (
+            bool(source.refined),
+            int(source.round_index),
+            source.relative_case_dir(results_dir, case_dir),
+            history,
+        )
 
     for idx in sorted(all_results):
         r = all_results[idx]
         if r['success']:
+            refined_flag, refine_round, case_source, history = _source_fields(r['freq'])
+            refined_list.append(refined_flag)
+            refine_round_list.append(refine_round)
+            case_source_list.append(case_source)
+            discard_history_list.append(history)
+            trend_order_list.append(int(r.get('fit_trend_order', 0)))
+            c2_list.append(float(r.get('c2', 0.0)))
+            gain_reference_list.append(
+                str(r.get('gain_reference') or GAIN_REFERENCE_NOMINAL)
+            )
+            fit_estimator_list.append(
+                str(r.get('fit_estimator') or FIT_ESTIMATOR_SINE_LS)
+            )
+            settle_regime_list.append(str(settle_regime_by_idx.get(idx, "")))
+            sin_mag_list.append(float(expected_amplitude(r['freq'])))
+            settle_discard_list.append(float(settle_discard_by_idx.get(idx, 0.0)))
+            settle_capped_list.append(bool(settle_capped_by_idx.get(idx, False)))
+            unsettled_list.append(bool(unsettled_by_idx.get(idx, False)))
+            fit_trend_list.append(bool(r.get('fit_trend', args.fit_trend)))
+            conv_gain_list.append(float(r.get('conv_gain_rel_diff', float('nan'))))
+            conv_gain_raw_list.append(
+                float(r.get('conv_gain_rel_diff_raw', float('nan'))))
+            conv_phase_list.append(float(r.get('conv_phase_diff_deg', float('nan'))))
+            operating_point_list.append(
+                float(r.get('operating_point_offset', float('nan'))))
+            h2_h1_list.append(float(r.get('h2_h1_ratio', float('nan'))))
+            relative_swing_list.append(float(r.get('relative_swing', float('nan'))))
+            case_target, case_halvings = _case_target(idx)
+            amplitude_halvings_list.append(int(case_halvings))
+            if swing_target is None:
+                target_swing_list.append(float('nan'))
+                swing_ratio_list.append(float('nan'))
+                swing_check_list.append("not_applicable")
+            else:
+                effective_target = (
+                    float(case_target) if case_target is not None else float('nan')
+                )
+                in_band, ratio = swing_verdict(
+                    relative_swing_list[-1], effective_target, clamped=_amplitude_clamp(idx)
+                )
+                target_swing_list.append(effective_target)
+                swing_ratio_list.append(ratio)
+                swing_check_list.append("pass" if in_band else "fail")
+                if not in_band:
+                    swing_failures.append(
+                        {
+                            "frequency_rad_s": float(r['freq']),
+                            "frequency_key": format_frequency_key(r['freq']),
+                            "relative_swing": relative_swing_list[-1],
+                            "effective_target_swing": (
+                                effective_target if math.isfinite(effective_target) else None
+                            ),
+                            "swing_ratio": ratio if math.isfinite(ratio) else None,
+                            "amplitude_clamped": _amplitude_clamp(idx),
+                        }
+                    )
+            converged_list.append(bool(r.get('converged', False)))
+            convergence_reason_list.append(str(r.get('convergence_reason') or ''))
+            if not r.get('converged', False):
+                convergence_points.append(
+                    {
+                        "frequency_rad_s": float(r['freq']),
+                        "frequency_key": format_frequency_key(r['freq']),
+                        "reason": str(r.get('convergence_reason') or ''),
+                        # NaN (not evaluable) is recorded as null so the
+                        # manifest stays strict JSON.
+                        "conv_gain_rel_diff": (
+                            conv_gain_list[-1]
+                            if math.isfinite(conv_gain_list[-1]) else None
+                        ),
+                        "conv_phase_diff_deg": (
+                            conv_phase_list[-1]
+                            if math.isfinite(conv_phase_list[-1]) else None
+                        ),
+                        "operating_point_offset": (
+                            operating_point_list[-1]
+                            if math.isfinite(operating_point_list[-1]) else None
+                        ),
+                        "settle_capped": settle_capped_list[-1],
+                        "settle_regime": settle_regime_list[-1],
+                        "settle_discard_s": settle_discard_list[-1],
+                        "gain_reference": gain_reference_list[-1],
+                        "refine_round": refine_round_list[-1],
+                        "case_source": case_source_list[-1],
+                    }
+                )
             freq_list.append(r['freq'])
             gain_list.append(r['gain'])
+            # Fractional gain (delta n / n_op) / delta rho about the operating
+            # point n_op = P / 1 MW (rev031 review B6): comparable across
+            # powers, unlike the full-power-normalized gain.
+            gain_fractional_list.append(
+                r['gain'] / float(label_power)
+                if r['gain'] is not None and _as_float_or_none(label_power)
+                else float('nan')
+            )
             gain_dB_list.append(r['gain_dB'])
             phase_list.append(r['phase_deg'])
             fit_quality.append(r['r_squared'])
@@ -2405,6 +3468,8 @@ def main(argv: list[str] | None = None) -> int:
     m_lines.append(format_matlab_assignment("fit_start_s", fit_start_list))
     m_lines.append(format_matlab_assignment("fit_end_s", fit_end_list))
     m_lines.append(format_matlab_assignment("fit_window_s", fit_window_list))
+    m_lines.append(format_matlab_assignment("sin_mag_pcm", sin_mag_list))
+    m_lines.append(format_matlab_assignment("converged", converged_list))
     m_text = "".join(m_lines)
 
     # Build the CSV aggregate text (published in the claimed block below).
@@ -2413,6 +3478,7 @@ def main(argv: list[str] | None = None) -> int:
         'frequency_rad_s': freq_list,
         'gain': gain_list,
         'gain_dB': gain_dB_list,
+        'gain_fractional': gain_fractional_list,
         'phase_deg': phase_list,
         'R_squared': fit_quality,
         'fit_start_s': fit_start_list,
@@ -2432,6 +3498,39 @@ def main(argv: list[str] | None = None) -> int:
         # Review H1: rows produced through the unsafe pre-forcing override
         # carry an explicit non-transfer-function marker.
         'non_transfer_function': [pre_forcing_fit] * len(freq_list),
+        # FR protocol (A1/A2): applied amplitude, settling discard, and the
+        # per-point convergence metrics and verdict.
+        'perturbation_amplitude_pcm': sin_mag_list,
+        'settle_discard_s': settle_discard_list,
+        'settle_capped': settle_capped_list,
+        'unsettled_fit_window': unsettled_list,
+        'fit_trend': fit_trend_list,
+        'conv_gain_rel_diff': conv_gain_list,
+        'conv_gain_rel_diff_raw': conv_gain_raw_list,
+        'conv_phase_diff_deg': conv_phase_list,
+        'operating_point_offset': operating_point_list,
+        'h2_h1_ratio': h2_h1_list,
+        'relative_swing': relative_swing_list,
+        'converged': converged_list,
+        'convergence_reason': convergence_reason_list,
+        # settle_prior_v2: per-point regime and estimator, and the
+        # refinement provenance (which points were refined, by which round,
+        # from which case directory, and every discard they went through).
+        'settle_regime': settle_regime_list,
+        'fit_trend_order': trend_order_list,
+        'c2': c2_list,
+        'gain_reference': gain_reference_list,
+        'fit_estimator': fit_estimator_list,
+        'refined': refined_list,
+        'refine_round': refine_round_list,
+        'case_source': case_source_list,
+        'settle_discard_history_s': discard_history_list,
+        # Realized swing vs the case's EFFECTIVE target swing (the policy
+        # target halved once per amplitude halving; prior gains unverified).
+        'target_swing': target_swing_list,
+        'amplitude_halvings': amplitude_halvings_list,
+        'swing_ratio': swing_ratio_list,
+        'swing_check': swing_check_list,
     })
     csv_text = results_df.to_csv(index=False)
 
@@ -2520,6 +3619,17 @@ def main(argv: list[str] | None = None) -> int:
             "model_name": label_model,
             "package": label_package,
             "package_name": label_package_name,
+            # Both maturity axes (rev032 review), from the base request.
+            "core_maturity": (
+                request_payload["request"].get("core_maturity")
+                if request_payload is not None
+                else None
+            ),
+            "core_physical_data_maturity": (
+                request_payload["request"].get("core_physical_data_maturity")
+                if request_payload is not None
+                else None
+            ),
             "authority_source": authority_source,
             "mapping_files": mapping_files,
             "request_manifest": (
@@ -2555,6 +3665,123 @@ def main(argv: list[str] | None = None) -> int:
                 args.fit_start_allow_pre_forcing
             ),
             "non_transfer_function": pre_forcing_fit,
+            # FR protocol A1: where the fit windows opened and why.
+            "fit_start_source": (
+                "explicit_fit_start"
+                if args.fit_start is not None
+                else (
+                    "sweep_request_settle_discard"
+                    if request_fit_start_by_key
+                    else "perturbation_start"
+                )
+            ),
+            "fit_start_range": [
+                float(distinct_fit_starts[0]),
+                float(distinct_fit_starts[-1]),
+            ],
+            "fit_start_pre_settle_override": bool(
+                args.fit_start_allow_pre_settle
+            ),
+            "unsettled_fit_window_points": int(sum(unsettled_list)),
+            "auto_fit_trend": not bool(args.no_auto_fit_trend),
+            "settle_capped_points": int(sum(settle_capped_list)),
+            "trend_order_counts": {
+                str(order): int(sum(1 for value in trend_order_list if value == order))
+                for order in sorted(set(trend_order_list))
+            },
+            "gain_reference_counts": {
+                name: int(sum(1 for value in gain_reference_list if value == name))
+                for name in sorted(set(gain_reference_list))
+            },
+            "fit_estimator_counts": {
+                name: int(sum(1 for value in fit_estimator_list if value == name))
+                for name in sorted(set(fit_estimator_list))
+            },
+            "settle_regime_counts": {
+                name: int(sum(1 for value in settle_regime_list if value == name))
+                for name in sorted(set(settle_regime_list))
+            },
+        },
+        "convergence": {
+            "method": (
+                "two halves of each fit window fitted separately; gain "
+                "difference normalized by each half's fitted mean power; "
+                "operating point |c0/P - 1|"
+            ),
+            "tolerances": {
+                "gain_rel_diff": float(args.convergence_gain_tol),
+                "phase_diff_deg": float(args.convergence_phase_tol_deg),
+                "operating_point_offset": float(
+                    args.convergence_operating_point_tol
+                ),
+                "operating_point_offset_window_mean_reference": float(
+                    args.convergence_drift_operating_point_tol
+                ),
+                "operating_point_offset_local_mean_reference": float(
+                    args.convergence_drift_operating_point_tol
+                ),
+            },
+            "required": bool(args.require_convergence),
+            "converged_points": int(sum(converged_list)),
+            "non_converged_points": int(len(converged_list) - sum(converged_list)),
+            "non_converged": convergence_points,
+        },
+        "swing_check": {
+            "applicable": swing_target is not None,
+            "target_swing": swing_target,
+            "band": list(SWING_BAND),
+            "failed_points": swing_failures,
+            # Points whose effective target differs from the policy target
+            # (amplitude halving): key, target, and halving count.
+            "halved_points": [
+                {
+                    "frequency_key": key,
+                    "effective_target_swing": sweep_manifest.case_target_swing(
+                        source.payload["request"], source.case
+                    ),
+                    "amplitude_halvings": sweep_manifest.case_amplitude_halvings(
+                        source.case
+                    ),
+                    "perturbation_amplitude_pcm": float(
+                        source.case["perturbation_amplitude_pcm"]
+                    ),
+                }
+                for key, source in sorted(
+                    case_sources.items(),
+                    key=lambda item: float(item[1].case["frequency_rad_s"]),
+                )
+                if sweep_manifest.case_amplitude_halvings(source.case) > 0
+            ],
+        },
+        "refinement": {
+            "rounds": [info.summary(results_dir) for info in refine_rounds],
+            "refined_points": [
+                {
+                    "frequency_key": key,
+                    "frequency_rad_s": float(source.case["frequency_rad_s"]),
+                    "final_round": int(source.round_index),
+                    "case_source": source.relative_case_dir(
+                        results_dir,
+                        frequency_case_dir_name(float(source.case["frequency_rad_s"])),
+                    ),
+                    "final_settle_discard_s": float(
+                        source.history[-1]["settle_discard_s"]
+                    ),
+                    "final_perturbation_amplitude_pcm": float(
+                        source.history[-1]["perturbation_amplitude_pcm"]
+                    ),
+                    "final_effective_target_swing": source.history[-1].get(
+                        "effective_target_swing"
+                    ),
+                    "amplitude_halvings": source.history[-1].get("amplitude_halvings", 0),
+                    "history": [dict(entry) for entry in source.history],
+                }
+                for key, source in sorted(
+                    case_sources.items(),
+                    key=lambda item: float(item[1].case["frequency_rad_s"]),
+                )
+                if source.refined
+            ],
         },
         "sweep_common_fields": reference_fields,
         "accepted_cases": [
@@ -2644,9 +3871,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif collection_status == COLLECTION_STATUS_LEGACY:
             title_suffix = " — LEGACY UNPROVENANCED DATA"
+        perturbation_label = (
+            f"{sin_mag} pcm"
+            if not sin_mag_list or len(set(sin_mag_list)) <= 1
+            else f"{min(sin_mag_list):.3g}-{max(sin_mag_list):.3g} pcm per frequency"
+        )
         plot_title = (
             "MSRR Frequency Response — Nominal Power = "
-            f"{label_power}, Perturbation = {sin_mag} pcm"
+            f"{label_power}, Perturbation = {perturbation_label}"
             f"{title_suffix}"
         )
 
@@ -2736,6 +3968,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         rr.atomic_write_text(manifest_file, manifest_text)
         print(f"Collection manifest saved to: {manifest_file}")
+
+        # Self-check: re-verify every published output against the digests
+        # the manifest advertises -- the aggregate is self-verifying by
+        # construction. The claim is held THROUGH verification so a
+        # concurrent collector cannot replace or quarantine the outputs
+        # between publication and verification (false mismatches, or
+        # verifying another generation).
+        output_problems = verify_aggregate_outputs(results_dir, manifest_payload)
     finally:
         for _name, staged_path, _digest, _size in staged_products:
             Path(staged_path).unlink(missing_ok=True)
@@ -2743,9 +3983,6 @@ def main(argv: list[str] | None = None) -> int:
             Path(prepared_plot).unlink(missing_ok=True)
         claim.release()
 
-    # Self-check: re-verify every published output against the digests the
-    # manifest advertises -- the aggregate is self-verifying by construction.
-    output_problems = verify_aggregate_outputs(results_dir, manifest_payload)
     if output_problems:
         for problem in output_problems:
             print(f"Aggregate output verification problem: {problem}",

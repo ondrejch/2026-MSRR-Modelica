@@ -10,7 +10,7 @@ gateway reads user configuration from:
 - `$MSRR_OMC_GW_CONFIG`, if set
 - otherwise `~/.config/msrr_omc_gw/config.json`
 
-A template is provided in [config.example.json](/home/o/git/SMD-MSRR-dev/helpers/omc_gw/config.example.json).
+A template is provided in [config.example.json](config.example.json).
 
 ## Files
 
@@ -29,13 +29,25 @@ Typical config keys:
 - `modelica_bin_dir`: optional OpenModelica bin directory prepended to worker `PATH`
 - `jobs_root`: shared directory for job metadata and logs
 - `remote_repo_relpath`: path to this repo under the remote user's home directory
-- `agent_command`: optional explicit override for the remote agent command
+- `agent_command` (also `remote_agent_command`): optional explicit override for the remote agent command
 - `ssh_options`: optional extra SSH arguments
 
 `agent_command` and `remote_repo_relpath` are alternatives. If `agent_command`
 is omitted, the client uses `remote_repo_relpath`. If neither is set, the
 client raises an error rather than guessing a remote path from the local
 checkout.
+
+Value validation. `host` and `workers` entries must not be empty, must not
+start with `-`, and must not contain whitespace or control characters;
+invalid values are rejected before any SSH command is built.
+`remote_repo_relpath` must be a path relative to the remote home directory
+containing only letters, digits, `.`, `_`, `/`, `-`, and `~`; absolute paths
+and `..` segments are rejected (use `agent_command` for absolute remote
+paths). `agent_command` is a trusted shell fragment: the remote shell
+executes it verbatim, so quotes and `$HOME`/`~` expansion are honored and the
+`python3 "$HOME/..."` form works. Control characters, including newlines,
+are rejected, and every argument the client appends after the fragment is
+shell-quoted automatically.
 
 ## Example setup
 
@@ -64,6 +76,18 @@ submit it with `--tasks 8`.
 The worker wrapper exports `MODELICA_SSH_TASKS` and defaults common math-library
 thread counts to `1` so many independent OpenModelica jobs do not silently
 oversubscribe a node.
+
+## Job records
+
+Each submitted job gets a directory under `jobs_root` named by its `job_id`,
+which must conform to the generator format `YYYYMMDDTHHMMSSZ-XXXXXXXX`
+(eight digits, `T`, six digits, `Z`, a dash, and eight lowercase hex
+digits). Other values are rejected: the agent answers `ok: false` and the
+client exits with status 2.
+
+On the shared jobs filesystem, `meta.json` (which embeds the submitted
+command) and `command.sh` are created owner-only (mode 0600); the worker
+`run.sh` wrapper remains mode 0700.
 
 ## Orphan-job reaping
 

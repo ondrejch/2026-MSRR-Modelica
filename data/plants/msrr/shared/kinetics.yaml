@@ -1,0 +1,93 @@
+# Six-group delayed-neutron data. Shared by 1R and 9R.
+# Group shape: the MSRE U-235 set (ORNL-TM-730); total scaled to the MSRR PSAR
+# static delayed-neutron fraction of 672 pcm (PSAR Sec. 4.5.2), generation time
+# from the PSAR prompt-neutron lifetime (Sec. 4.5.3.1) -- TASK-20261001-01.
+# Lumped nomTauCore/nomTauLoop are the 1R core and loop transit times V/vdot at
+# the PSAR fuel mass flow (0.4 m3 and 0.1000004 m3 over vdot_fuel). The legacy
+# 9R core (MSRR.Components.MSRR9R) derives its own transit times from its
+# regional volumes.
+num_groups:
+  value: 6
+  unit: "1"
+  doc: Number of delayed-neutron precursor groups.
+  source: MSRR.Components.MSRR1R.numGroups
+lambda:
+  value: [0.0124, 0.0305, 0.111, 0.301, 1.14, 3.014]
+  unit: 1/s
+  doc: Delayed-neutron decay constants, group order 1..6.
+  source: MSRR.R1MSRRuhx core1R.lambda / SegmentedMSR.Reactors.lambda1R
+beta:
+  value: [0.000226677, 0.001481023, 0.001328549, 0.00267133, 0.00077863, 0.000233792]
+  unit: "1"
+  doc: Delayed-neutron fractions. sumBeta = 6.720e-3 (672 pcm).
+  source: "MSRE U-235 six-group fractions (ORNL-TM-730; sum 6.611e-3) scaled by 672/661.1 = 1.016488 to the MSRR PSAR static delayed-neutron fraction of 672 pcm (ACU MSRR PSAR Rev. 0, Sec. 4.5.2); the PSAR gives no group-wise set (TASK-20261001-01)."
+generation_time:
+  value: 2.593e-4
+  unit: s
+  doc: Prompt neutron generation time LAMBDA.
+  source: "MSRR PSAR prompt-neutron lifetime 259.3 us for the initial fuel salt, SCALE (ACU MSRR PSAR Rev. 0, Sec. 4.5.3.1); taken as LAMBDA at critical (TASK-20261001-01). Formerly the MSRE value 2.4e-4 s."
+n_floor:
+  value: 1.0e-9
+  unit: "1"
+  doc: Numerical neutron-population floor (solver aid, not source strength).
+  source: MSRR.Components.MSRR1R.nFloor
+source_scale:
+  value: 1.58e20
+  unit: 1/s
+  doc: >
+    LEGACY external-source normalizer, formerly inlined as S.nDot/1.58E20 in the
+    lumped mPKE/PKE and still kept verbatim in SegmentedMSR.Verify.RefMPKE and
+    the SegmentedMSR.Constants.nomSourceScale copy. Not a physical population:
+    the full-power neutron population is N0 = LAMBDA*nu*P/E_f = 1.82e13, so this
+    legacy value makes an absolute source ~8.7e6 times too weak (physics review
+    2026-09-27). Neither the SegmentedMSR product kinetics (PKE_T) nor the
+    legacy SMD_MSR_Modelica PKE/mPKE reads it any more - both derive N0 from
+    generation_time, nu, nominal_power and poisons.energy_per_fission.
+  source: SMD_MSR_Modelica.Nuclear.mPKE nomS = S.nDot/1.58E20 (pre-2026-09-27)
+nu:
+  value: 2.43
+  unit: "1"
+  doc: >
+    Mean number of neutrons emitted per fission (prompt + delayed). Converts the
+    absolute external source S [n/s] into the normalized population rate
+    S/N0 with the full-power population N0 = LAMBDA*nu*P/E_f (SegmentedMSR
+    PKE_T; legacy SMD_MSR_Modelica PKE/mPKE via MSRR_PlantData.Kinetics.nu), and sets the homogeneous poison-worth denominator
+    Sigma_a = nu*Sigma_f (critical-core one-group absorption) in
+    SegmentedMSR.Nuclear.HomogeneousPoisons.
+  source: "U-235 thermal fission nu-bar = 2.43 (ENDF/B-VIII.0 total nu-bar at thermal energy, rounded); MSRR-spectrum value pending review."
+source_effectiveness:
+  value: 1.0
+  unit: "1"
+  doc: >
+    External-source effectiveness eta_S (importance of a source neutron
+    relative to the fundamental mode): the normalized source rate is
+    eta_S*S/N0 with N0 = LAMBDA*nu*P/E_f (SegmentedMSR PKE_T; legacy
+    SMD_MSR_Modelica PKE/mPKE via MSRR_PlantData.Kinetics.sourceEffectiveness).
+    The default 1.0 assumes unit importance. This is an ASSUMPTION, not a sourced
+    value: absolute source-range power (startup phases 1-3) scales linearly with
+    it and is a sensitivity result, not a qualified prediction, until eta_S is
+    sourced (physics review 2026-09-27; external review of rev031). Numbers at
+    power (sourceRate = 0 after the startup source is withdrawn) do not depend
+    on it.
+  source: "ASSUMPTION (unit source importance); no MSRR-specific source-importance calculation yet."
+lumped_tau_core:
+  value: 43.5146
+  unit: s
+  doc: Nominal in-core fuel transit used by the lumped 1R mPKE, 0.4 m3 / vdot_fuel (the legacy 9R core derives its own value from its regional volumes).
+  source: "0.4 m3 / 0.0091923 m3/s (PSAR 400 L vessel inventory at the PSAR 23.9 kg/s and fuel density 2600 kg/m3; TASK-20261001-01). Formerly 34.8025 s at 2079.45 kg/m3."
+lumped_tau_loop:
+  value: 10.8787
+  unit: s
+  doc: Nominal ex-core loop transit used by the lumped 1R mPKE, primary-loop volume 0.1000004 m3 / vdot_fuel.
+  source: "0.1000004 m3 / 0.0091923 m3/s (TASK-20261001-01). Formerly 8.7006 s at 2079.45 kg/m3."
+feedback:
+  a_F:
+    value: -6.26e-5
+    unit: 1/K
+    doc: Fuel-temperature reactivity coefficient (same numeric in degC or K because it is per kelvin).
+    source: MSRR.R1MSRRuhx core1R.a_F / SegmentedMSR.Reactors.aF1R
+  a_G:
+    value: -5.16e-5
+    unit: 1/K
+    doc: Graphite-temperature reactivity coefficient.
+    source: MSRR.R1MSRRuhx core1R.a_G / SegmentedMSR.Reactors.aG1R

@@ -1,4 +1,4 @@
-"""Shared refuse-published-record-tree guard for fake-run test helpers.
+"""Shared refuse-published-record-tree guard (test fakes and segmented runners).
 
 One implementation of the guard that keeps the fake omc/CSV-writing helpers
 used by the segmented-mode test modules from ever writing into the published
@@ -23,6 +23,14 @@ Test modules import it like any other helper package member::
 ``refuse_published_tree_cwd`` is a drop-in replacement for the per-module
 ``_refuse_published_tree_cwd(cwd)`` helpers it replaces (same signature, same
 refusal message); the freq helpers can call either name.
+
+Production runners (review 2026-10-01 M6): the segmented routes of
+``startup/runMSRR.py``, ``transients/run_nonlinear_steps.py`` and
+``freq/runFreqNominalParallel.py`` write their defaults under
+``00runs/segmented/`` and refuse an explicit output path inside a published
+record tree through :func:`refuse_published_tree_output` (a ``ValueError``
+naming the CLI flag, raised from each runner's ``validate_args`` before
+anything is created). The legacy routes keep their historical defaults.
 """
 
 from __future__ import annotations
@@ -67,3 +75,23 @@ def refuse_published_tree_path(path: str | Path) -> None:
 #: Drop-in alias matching the name the ported per-module helpers used
 #: (``_refuse_published_tree_cwd(cwd)`` in the startup/transients twins).
 refuse_published_tree_cwd = refuse_published_tree_path
+
+
+def refuse_published_tree_output(path: str | Path, *, flag: str) -> None:
+    """Refuse a production output path under a published record tree.
+
+    For the segmented runner routes (review 2026-10-01 M6): ``path`` is the
+    explicit ``flag`` value (``--run_dir``, ``--out_dir`` or
+    ``--base_dir``). Raises ``ValueError`` naming the flag and the resolved
+    location; paths elsewhere, ``00runs/segmented/`` and ``00runs/tmp/``
+    included, pass.
+    """
+    resolved = Path(path).resolve()
+    if is_under_published_record_tree(resolved):
+        raise ValueError(
+            f"{flag} {resolved} resolves under a published pre-fix record "
+            "tree (00runs/freq/, 00runs/startup-*, 00runs/transients-*), "
+            "which segmented runs never write: omit "
+            f"{flag} to use the segmented default under 00runs/segmented/, "
+            "or pass a path outside those trees."
+        )

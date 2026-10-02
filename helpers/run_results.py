@@ -125,11 +125,14 @@ __all__ = [
     "__version__",
     "ACTION_FRESH",
     "ACTION_REUSE",
+    "ANNULAR_LOOP_FINGERPRINT_KEY",
     "BACKEND_CHOICES",
     "DEFAULT_MIN_SAMPLES",
     "DEFAULT_MTIME_TOLERANCE_S",
     "DEFAULT_REQUIRED_COLUMNS",
     "MANIFEST_ALGORITHM",
+    "RADIAL_FINGERPRINT_KEY",
+    "RADIAL_MANIFEST_KEY",
     "RESULT_CLAIM_SUFFIX",
     "RESULT_TMP_SUFFIX",
     "SCHEMA_VERSION",
@@ -162,6 +165,7 @@ __all__ = [
     "probe_omc_version",
     "publish_validated_result",
     "quarantine_existing_artifacts",
+    "radial_reuse_conflict",
     "read_manifest_sidecar",
     "read_validation_report",
     "tmp_path_for",
@@ -199,6 +203,20 @@ DEFAULT_MIN_SAMPLES = 2
 # container filesystems; freshness comparisons absorb this much jitter while
 # still rejecting results written before their recorded launch instant.
 DEFAULT_MTIME_TOLERANCE_S = 0.05
+
+# Top-level manifest field recording the intra-channel radial stack /
+# annular-loop configuration of a run (TASK-20260914-01 P1; see
+# ``helpers.segmented_runs.radial_manifest_fields``). The field is
+# fingerprint-active and present ONLY on radial-enabled runs (absence ==
+# disabled), so a result directory whose recorded manifest carries it is
+# NEVER reusable for a request that does not carry the identical record
+# (radial_reuse_conflict, card A16 / plan §6.8, §8.4).
+RADIAL_MANIFEST_KEY = "intra_channel_radial"
+
+# The two deterministic fingerprints inside the radial record whose
+# disagreement names the reuse conflict most specifically.
+RADIAL_FINGERPRINT_KEY = "radialFingerprint"
+ANNULAR_LOOP_FINGERPRINT_KEY = "annularLoopFingerprint"
 
 RESULT_TMP_SUFFIX = ".tmp"
 
@@ -263,16 +281,21 @@ def file_sha256(path: str | os.PathLike[str]) -> str:
     return digest.hexdigest()
 
 
-def probe_omc_version(timeout_seconds: float = 15.0) -> str:
+def probe_omc_version(
+    timeout_seconds: float = 15.0,
+    omc_executable: str = "omc",
+) -> str:
     """Best-effort OpenModelica version string, ``"unavailable"`` on failure.
 
-    Runs ``omc --version`` with a bounded timeout.  Never raises: any error
-    resolves to the literal string ``"unavailable"`` so manifests can always
-    record something meaningful.
+    Runs ``<omc_executable> --version`` with a bounded timeout.  Never raises:
+    any error resolves to the literal string ``"unavailable"`` so manifests can
+    always record something meaningful.  Pass ``omc_executable`` to probe the
+    exact binary a run used (e.g. a ``--omc`` CLI value) instead of whatever
+    ``omc`` happens to resolve to on ``PATH``.
     """
     try:
         completed = subprocess.run(
-            ["omc", "--version"],
+            [str(omc_executable), "--version"],
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
@@ -494,10 +517,18 @@ def build_run_manifest(
     setpoint_table_path: str | os.PathLike[str] | None = None,
     setpoint_table_sha256: str | None = None,
     setpoint_table_row: int | None = None,
+    setpoint_policy: str | None = None,
+    setpoint_policy_exception: bool | None = None,
     backend: str = "local",
     omc_version: str | None = None,
     python_version: str | None = None,
     git_info: Mapping[str, Any] | None = None,
+    core_maturity: str | None = None,
+    core_physical_data_maturity: str | None = None,
+    radial_config: Mapping[str, Any] | None = None,
+    outer_annulus_config: Mapping[str, Any] | None = None,
+    result_variables: Sequence[str] | None = None,
+    result_output_mode: str | None = None,
     workflow_version: str = f"run_results/{__version__}",
     launch_timestamp: float | str | None = None,
 ) -> dict[str, Any]:
@@ -540,6 +571,22 @@ def build_run_manifest(
         Provenance of the steady-state setpoint table backing the request;
         ``None`` when unused.  The hash is computed from the file when a
         path is given and no explicit hash is supplied.
+    setpoint_policy:
+        Active setpoint qualification policy for the consumed table
+        (``"legacy-compatible"`` or ``"strict"``; see
+        ``helpers/setpoint_provenance.py``).  Recorded as a top-level
+        ``setpoint_policy`` manifest field when given -- the producers pass
+        it only when a setpoint table was actually consumed, so manifests
+        without a table keep their historical shape and fingerprint.
+        When the table has a model-version sidecar, the manifest also
+        records ``setpoint_model_version`` (the version named there, or
+        ``None`` for an unversioned table).
+    setpoint_policy_exception:
+        True when the legacy exception applied: the consumed table carries
+        no ``qualified`` verdict column and the ``legacy-compatible``
+        policy let the load proceed.  Recorded as a top-level
+        ``setpoint_policy_exception`` field only when True (absence == no
+        exception); requires ``setpoint_policy``.
     backend:
         Execution backend: one of :data:`BACKEND_CHOICES`.
     omc_version:
@@ -551,6 +598,53 @@ def build_run_manifest(
         Precomputed revision-control state (shape produced by
         :func:`collect_git_info`); ``None`` collects current state.  Pass a
         stub mapping for hermetic fingerprints.
+    core_maturity:
+        Optional machine-readable core-maturity label (TASK-20260908-01
+        P2; see ``helpers/segmented_runs.CORE_MATURITY``).  Recorded as a
+        top-level ``core_maturity`` manifest field when given; ``None``
+        omits the field entirely, so manifests that predate the metadata
+        program keep their historical shape and fingerprint.
+    radial_config:
+        Optional JSON-safe mapping identifying the intra-channel radial
+        stack / annular-loop configuration of the run (TASK-20260914-01
+        P1; see ``helpers.segmented_runs.radial_manifest_fields`` and
+        ``helpers.plant_config.radial_manifest_record``).  Recorded as a
+        top-level ``intra_channel_radial`` manifest field when given and
+        it participates in the fingerprint, so results are never reused
+        across different radial / circulation / flow-distribution /
+        heat-exchanger configurations (plan §6.8, §8.4).  ``None`` omits
+        the field entirely: the disabled default produces no new
+        fingerprint-active fields, so disabled-run manifests keep their
+        historical shape and fingerprint (the same omission pattern as
+        poison-off columns).
+    outer_annulus_config:
+        Optional JSON-safe mapping identifying the OUTER-CORE fuel-annulus
+        / reactor-vessel / fixed-cavity dataset of the run (P8 of
+        TASK-20260917-01; see ``helpers.segmented_runs
+        .outer_annulus_manifest_fields`` and ``helpers.plant_config
+        .outer_annulus_manifest_record``).  Recorded as a top-level
+        ``outer_fuel_annulus`` manifest field when given and it
+        participates in the fingerprint, so results are never reused
+        across different outer-annulus datasets (dataset id, fingerprint,
+        maturity, topology/direction codes, cavity state/temperature,
+        inventory policy - plan §11.2).  ``None`` omits the field
+        entirely: the disabled default produces no new fingerprint-active
+        fields, so disabled-run manifests keep their historical shape and
+        fingerprint (the same omission pattern as ``radial_config``).
+    result_variables:
+        Optional selected result-variable set (TASK-20260908-01 P4; see
+        ``helpers/segmented_runs.py`` ``RESULT_CONTRACT``).  Recorded as a
+        top-level ``result_variables`` list and it participates in the
+        fingerprint: the published CSV's columns are part of the request.
+        ``None`` omits the field (legacy and direct programmatic paths keep
+        their historical manifest shape and wide output).
+    result_output_mode:
+        Optional output mode recorded alongside ``result_variables``
+        (``"contract"`` or ``"full"`` -- the diagnostic
+        ``--full-result-output`` path).  ``None`` omits the field.  How the
+        mode was mechanically realized (runtime filter vs post-run
+        projection) is a post-build toolchain detail; runners surface it in
+        their run logs rather than in the fingerprinted request.
     workflow_version:
         Version string identifying the calling workflow implementation
         (for example ``"freq-runFreqNominalParallel/3"``).
@@ -599,6 +693,24 @@ def build_run_manifest(
         raise ValueError("number_of_intervals must be positive when provided")
     setpoint_row_value = _optional_int(setpoint_table_row, "setpoint_table_row")
 
+    result_variables_value: list[str] | None = None
+    if result_variables is not None:
+        result_variables_value = [str(name) for name in result_variables]
+        if not result_variables_value:
+            raise ValueError(
+                "result_variables must name at least one column when provided"
+            )
+        if any(not name.strip() for name in result_variables_value):
+            raise ValueError("result_variables entries must be non-empty strings")
+    if result_output_mode is not None and result_variables_value is None:
+        # A mode without a variable set is only meaningful for the explicit
+        # wide-output diagnostic; contract mode always names its variables.
+        if str(result_output_mode) != "full":
+            raise ValueError(
+                "result_output_mode 'contract' requires result_variables; "
+                "pass the contract column set or use mode 'full'"
+            )
+
     setpoint_display: str | None = None
     setpoint_hash_value: str | None = (
         setpoint_table_sha256.lower() if setpoint_table_sha256 else None
@@ -616,7 +728,10 @@ def build_run_manifest(
     elif setpoint_row_value is not None:
         raise ValueError("setpoint_table_row requires setpoint_table_path")
 
-    return {
+    if setpoint_policy_exception is not None and setpoint_policy is None:
+        raise ValueError("setpoint_policy_exception requires setpoint_policy")
+
+    manifest = {
         "schema_version": SCHEMA_VERSION,
         "package_name": str(package_name),
         "model_name": str(model_name),
@@ -644,6 +759,41 @@ def build_run_manifest(
         "workflow_version": str(workflow_version),
         "launch_timestamp_utc": launch_iso,
     }
+    if core_maturity is not None:
+        manifest["core_maturity"] = str(core_maturity)
+    if core_physical_data_maturity is not None:
+        # Second maturity axis (rev031 review): physical-data provenance.
+        manifest["core_physical_data_maturity"] = str(core_physical_data_maturity)
+    if radial_config is not None:
+        # Fingerprint-active only when the radial stack is enabled: the
+        # normalization keeps JSON-safe leaves (bool/int/float/str) and
+        # rejects anything else loudly instead of reshaping silently.
+        manifest["intra_channel_radial"] = normalize_overrides(radial_config)
+    if outer_annulus_config is not None:
+        # Fingerprint-active only when the outer-annulus dataset is enabled
+        # (the same field-omission pattern as intra_channel_radial).
+        manifest["outer_fuel_annulus"] = normalize_overrides(outer_annulus_config)
+    if setpoint_policy is not None:
+        manifest["setpoint_policy"] = str(setpoint_policy)
+    if setpoint_table_path is not None:
+        # Model version the consumed table was generated for (its
+        # <stem>.model_version.json sidecar; helpers.setpoint_model_version).
+        # Recorded only when the table has a sidecar, so manifests of tables
+        # without one keep their historical shape and fingerprint.
+        from helpers.setpoint_model_version import sidecar_path, table_model_version
+
+        consumed = Path(setpoint_table_path).resolve()
+        if sidecar_path(consumed).is_file():
+            manifest["setpoint_model_version"] = table_model_version(consumed)
+    if setpoint_policy_exception is not None and bool(setpoint_policy_exception):
+        # Absence == no exception (qualified table, or a strict-mode load
+        # that would have refused an absent column before reaching here).
+        manifest["setpoint_policy_exception"] = True
+    if result_variables_value is not None:
+        manifest["result_variables"] = result_variables_value
+    if result_output_mode is not None:
+        manifest["result_output_mode"] = str(result_output_mode)
+    return manifest
 
 
 # ---------------------------------------------------------------------------
@@ -765,6 +915,86 @@ def format_manifest_differences(differences: Iterable[ManifestDifference]) -> st
             f"recorded={recorded}"
         )
     return "\n".join(lines)
+
+
+def radial_reuse_conflict(
+    expected: Mapping[str, Any] | None,
+    recorded: Mapping[str, Any] | None,
+) -> str | None:
+    """Name a radial/loop fingerprint reuse conflict, or ``None``.
+
+    The reuse-refusal rule of card A16 (plan §6.8, §8.4): a result
+    directory must not be reused across different radial / circulation /
+    flow-distribution / heat-exchanger fingerprints. ``diff_manifests``
+    already refuses an expected radial record against a recorded manifest
+    lacking it (the fingerprint walk covers every *expected* key), but it
+    deliberately ignores extra *recorded* keys so schema growth never
+    invalidates historical results retroactively -- which would let a
+    radial-configured result stand in for a request that names no radial
+    record. This guard closes that one-sided hole explicitly:
+
+    - the expected request carries :data:`RADIAL_MANIFEST_KEY` and the
+      recorded manifest does not -> conflict (a disabled/unclaimed request
+      cannot reuse a radial-configured directory);
+    - the recorded manifest carries it and the expected request does not
+      -> conflict;
+    - both carry it but the records differ -> conflict, naming the two
+      deterministic fingerprints
+      (:data:`RADIAL_FINGERPRINT_KEY` / :data:`ANNULAR_LOOP_FINGERPRINT_KEY`)
+      plus the full differing records;
+    - both absent, or byte-identical records -> ``None`` (the ordinary
+      fingerprint comparison remains the authority).
+
+    Historical manifests never carry the field (it landed with the radial
+    program), so the one-sided refusals cannot invalidate any pre-radial
+    result.
+    """
+
+    expected_record = (
+        expected.get(RADIAL_MANIFEST_KEY)
+        if isinstance(expected, Mapping)
+        else None
+    )
+    recorded_record = (
+        recorded.get(RADIAL_MANIFEST_KEY)
+        if isinstance(recorded, Mapping)
+        else None
+    )
+    if expected_record is None and recorded_record is None:
+        return None
+    if expected_record is None or recorded_record is None:
+        side = "expected" if expected_record is not None else "recorded"
+        return (
+            f"{RADIAL_MANIFEST_KEY} fingerprint mismatch: the {side} "
+            "manifest carries an intra-channel radial / annular-loop "
+            "configuration the other side does not; a result directory is "
+            "not reusable across radial / circulation / flow-distribution / "
+            "heat-exchanger fingerprints (plan §6.8, §8.4). "
+            f"expected={expected_record!r}; recorded={recorded_record!r}"
+        )
+    try:
+        same = canonical_manifest_json(expected_record) == canonical_manifest_json(
+            recorded_record
+        )
+    except (TypeError, ValueError):
+        same = False
+    if same:
+        return None
+    return (
+        f"{RADIAL_MANIFEST_KEY} fingerprint mismatch: the recorded "
+        "intra-channel radial / annular-loop configuration differs from "
+        "the requested one; a result directory is not reusable across "
+        "radial / circulation / flow-distribution / heat-exchanger "
+        "fingerprints (plan §6.8, §8.4). "
+        f"expected.{RADIAL_FINGERPRINT_KEY}="
+        f"{expected_record.get(RADIAL_FINGERPRINT_KEY)!r}, "
+        f"expected.{ANNULAR_LOOP_FINGERPRINT_KEY}="
+        f"{expected_record.get(ANNULAR_LOOP_FINGERPRINT_KEY)!r}, "
+        f"recorded.{RADIAL_FINGERPRINT_KEY}="
+        f"{recorded_record.get(RADIAL_FINGERPRINT_KEY)!r}, "
+        f"recorded.{ANNULAR_LOOP_FINGERPRINT_KEY}="
+        f"{recorded_record.get(ANNULAR_LOOP_FINGERPRINT_KEY)!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2042,6 +2272,27 @@ def prepare_result_path(
             "(sidecar edited or corrupted).",
             fingerprint_expected=expected_fingerprint,
             fingerprint_recorded=recomputed_fp,
+            artifacts=artifacts,
+            quarantine_root=quarantine_root,
+        )
+
+    # Card A16 (plan §6.8, §8.4): a result directory is not reusable
+    # across radial / circulation / flow-distribution / heat-exchanger
+    # fingerprints. Checked BEFORE the general fingerprint comparison so
+    # the refusal names the radial cause; the ordinary fingerprint check
+    # remains the authority for every other field.
+    radial_conflict = radial_reuse_conflict(expected_manifest, stored_manifest)
+    if radial_conflict is not None:
+        mismatches: tuple[ManifestDifference, ...] = ()
+        if expected_manifest is not None:
+            mismatches = diff_manifests(expected_manifest, stored_manifest)
+        return _fresh_outcome(
+            f"Existing result cannot be reused: {radial_conflict}. "
+            "Differing fields:\n"
+            + format_manifest_differences(mismatches),
+            fingerprint_expected=expected_fingerprint,
+            fingerprint_recorded=recomputed_fp,
+            mismatches=mismatches,
             artifacts=artifacts,
             quarantine_root=quarantine_root,
         )

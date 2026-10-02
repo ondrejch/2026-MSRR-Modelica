@@ -4,14 +4,46 @@ from __future__ import annotations
 
 from pathlib import Path
 
+try:
+    from helpers.power_tags import (
+        POWER_TAG_FORMAT_VERSION,
+        check_power_tag_collisions,
+        freq_power_tag,
+    )
+except ImportError:  # script-style execution from freq/
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from helpers.power_tags import (
+        POWER_TAG_FORMAT_VERSION,
+        check_power_tag_collisions,
+        freq_power_tag,
+    )
+
+__all__ = [
+    "POWER_TAG_FORMAT_VERSION",
+    "check_power_tag_collisions",
+    "default_freq_case_dir",
+    "default_freq_core_dir",
+    "default_freq_plot_dir",
+    "default_freq_results_root",
+    "default_freq_time_compare_out_path",
+    "default_segmented_freq_results_root",
+    "make_freq_slug",
+    "make_power_tag",
+]
+
 
 def make_power_tag(power: float) -> str:
-    """Return the repository power tag used in directory names."""
+    """Return the frequency-campaign power tag used in directory names.
 
-    text = f"{float(power):.5f}".rstrip("0").rstrip(".")
-    if not text:
-        text = "0"
-    return text.replace(".", "p")
+    Uses the stripped historical spelling (``1``, ``0p1``, ``0p00001``)
+    so committed ``00runs/freq/<core>/power_<tag>/`` trees stay
+    byte-identical. Setpoint tables keep the unstripped ``%.5f`` form
+    via :func:`helpers.power_tags.sanitize_power_tag`. Both are injective.
+    """
+
+    return freq_power_tag(power)
 
 
 def make_freq_slug(freq: float) -> str:
@@ -40,18 +72,28 @@ def default_freq_case_dir(
     core_model: str,
     power: float,
     package: str = "legacy",
+    plant: str = "msrr",
 ) -> Path:
     """Return the default run directory for one core/power definition.
 
-    Segmented runs (``package="segmented"``) nest under an extra
-    ``segmented/`` component so they can never collide with legacy results in
-    the same ``power_<tag>`` folder: legacy collectors glob
-    ``00runs/freq/<core>/power_<tag>`` directly.
+    Segmented runs (``package="segmented"``) default to the same layout under
+    ``00runs/segmented/freq/`` (``00runs/segmented/freq/<core>/power_<tag>``;
+    review 2026-10-01 M6): ``00runs/freq/`` is the published pre-fix record,
+    and legacy collectors glob ``00runs/freq/<core>/power_<tag>`` directly.
     """
-    case_root = default_freq_core_dir(repo_root, core_model=core_model)
     if str(package) == "segmented":
-        case_root = case_root / "segmented"
+        case_root = default_segmented_freq_results_root(repo_root, plant=plant) / core_model
+    else:
+        case_root = default_freq_core_dir(repo_root, core_model=core_model)
     return case_root / f"power_{make_power_tag(power)}"
+
+
+def default_segmented_freq_results_root(repo_root: Path, *, plant: str = "msrr") -> Path:
+    """Root of the ``--package segmented`` sweep defaults (review M6); a plant
+    other than msrr nests under ``00runs/segmented/<plant>/freq``."""
+
+    base = repo_root / "00runs" / "segmented"
+    return (base if plant == "msrr" else base / str(plant)) / "freq"
 
 
 def default_freq_plot_dir(repo_root: Path) -> Path:

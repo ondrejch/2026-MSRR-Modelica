@@ -10,7 +10,7 @@ Usage:
     python plotFreqRun.py --freq 0.01
     python plotFreqRun.py --freq 0.01 --results_dir 00runs/freq/1r/power_1
     python plotFreqRun.py --freq 0.01 --ss_only --save
-    python plotFreqRun.py --csv path/to/MSRR_freq00000.01000_res.csv
+    python plotFreqRun.py --csv path/to/MSRR_freq0.01_res.csv
 
 The script can locate the CSV either by frequency value (looking up the
 standard directory structure) or by direct path to the CSV file.
@@ -26,8 +26,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 try:
+    from ._common import clean_column_headers, resolve_case_dir
     from .paths import default_freq_case_dir
 except ImportError:
+    from _common import clean_column_headers, resolve_case_dir
     from paths import default_freq_case_dir
 
 
@@ -83,15 +85,6 @@ def parse_args():
     return args
 
 
-def clean_column_headers(columns):
-    """Remove conflicting characters from OpenModelica CSV column headers."""
-    header_str = str(list(columns))
-    chars_to_remove = ['[', ']', '.', '(', ')', '_', "'"]
-    rx = '[' + re.escape(''.join(chars_to_remove)) + ']'
-    cleaned = re.sub(rx, '', header_str)
-    return cleaned.replace(" ", "").split(',')
-
-
 def read_run_params(results_dir):
     """Read the run parameters file saved by runFreqNominal.py."""
     params = {}
@@ -145,8 +138,11 @@ def main():
     else:
         freq_point = args.freq
         results_dir = args.results_dir
-        work_path = os.path.join(results_dir, f"freq{freq_point:08.5f}")
-        file_prefix = f"MSRR_freq{freq_point:08.5f}"
+        # Canonical case-directory name (falls back to the frozen pre-fix
+        # zero-padded name of published records when the canonical one is
+        # absent); the CSV prefix always matches the resolved directory name.
+        work_path = resolve_case_dir(results_dir, freq_point)
+        file_prefix = f"MSRR_{os.path.basename(work_path)}"
         data_file = os.path.join(work_path, f"{file_prefix}_res.csv")
 
     if not os.path.exists(data_file):
@@ -176,6 +172,9 @@ def main():
     if len(sim_data.columns) > 30:
         print(f"  ... and {len(sim_data.columns) - 30} more")
 
+    if 'time' not in sim_data.columns:
+        print(f"Missing time column in {data_file}")
+        sys.exit(1)
     time = sim_data['time'].values
 
     # --- Find power column ---
@@ -400,7 +399,16 @@ def main():
         if args.csv:
             out_dir = os.path.dirname(data_file)
         else:
-            out_dir = os.path.join(results_dir, f"freq{freq_point:08.5f}")
+            # --freq/--csv are mutually exclusive and required, so the
+            # non-csv branch always has a frequency point (explicit raise:
+            # an assert would be stripped under `python -O`).
+            if freq_point is None:
+                raise ValueError(
+                    "the --save branch without --csv requires a frequency "
+                    "point (--freq); --freq/--csv are mutually exclusive "
+                    "and required"
+                )
+            out_dir = resolve_case_dir(results_dir, freq_point)
 
         suffix = "_ss" if args.ss_only else ""
         plot_file = os.path.join(out_dir,

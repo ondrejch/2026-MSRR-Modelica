@@ -5,15 +5,34 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 
 try:
-    from .paths import default_freq_core_dir, default_freq_plot_dir
+    from .paths import (
+        POWER_TAG_FORMAT_VERSION,
+        check_power_tag_collisions,
+        default_freq_core_dir,
+        default_freq_plot_dir,
+        make_power_tag,
+    )
 except ImportError:
-    from paths import default_freq_core_dir, default_freq_plot_dir
+    from paths import (
+        POWER_TAG_FORMAT_VERSION,
+        check_power_tag_collisions,
+        default_freq_core_dir,
+        default_freq_plot_dir,
+        make_power_tag,
+    )
+
+try:
+    from helpers.power_tags import parse_finite_number, require_finite
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from helpers.power_tags import parse_finite_number, require_finite
 
 
 def default_steady_state_table(core_model: str) -> Path:
@@ -130,6 +149,39 @@ def parse_args() -> argparse.Namespace:
         help="Pass-through to runFreqNominalParallel.py",
     )
     parser.add_argument(
+        "--stop_time_mode",
+        type=str,
+        choices=("fixed", "min_cycles_after_ss"),
+        default=None,
+        help="Pass-through to runFreqNominalParallel.py (omitted when unset)",
+    )
+    parser.add_argument(
+        "--min_cycles_after_ss",
+        type=float,
+        default=None,
+        help="Pass-through to runFreqNominalParallel.py (omitted when unset)",
+    )
+    parser.add_argument(
+        "--settle_rule",
+        type=str,
+        choices=("prior", "none"),
+        default=None,
+        help=(
+            "Pass-through to runFreqNominalParallel.py (settling discard; "
+            "omitted when unset, i.e. the runner default 'prior')"
+        ),
+    )
+    parser.add_argument(
+        "--sin_mag_auto_rule",
+        type=str,
+        choices=("target_swing", "inverse_power"),
+        default=None,
+        help=(
+            "Pass-through to runFreqNominalParallel.py (--sin_mag_auto "
+            "amplitude rule; omitted when unset, i.e. 'target_swing')"
+        ),
+    )
+    parser.add_argument(
         "--n_jobs",
         type=int,
         default=None,
@@ -217,6 +269,9 @@ def load_powers(table_path: Path, power_min: float, power_max: float, heat_loss:
     if not table_path.exists():
         raise FileNotFoundError(f"Steady-state table not found: {table_path}")
 
+    lo = require_finite(power_min, "power_min")
+    hi = require_finite(power_max, "power_max")
+
     with table_path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames or "power" not in reader.fieldnames:
@@ -241,11 +296,19 @@ def load_powers(table_path: Path, power_min: float, power_max: float, heat_loss:
                     row_hl = 1 if raw_hl.lower() in ("true", "yes") else 0
                 if row_hl != int(heat_loss):
                     continue
-            power = float(raw)
+            try:
+                power = parse_finite_number(raw, name="power")
+            except ValueError as exc:
+                raise ValueError(f"Steady-state table {table_path}: {exc}") from exc
             # Skip zero-power runs; frequency response is nonphysical at power=0.
             if abs(power) < 1e-12:
                 continue
-            if power < power_min or power > power_max:
+            if power < 0:
+                raise ValueError(
+                    f"Steady-state table {table_path}: negative power is "
+                    f"nonphysical: {power}"
+                )
+            if power < lo or power > hi:
                 continue
             key = f"{power:.12g}"
             if key in seen:
@@ -254,14 +317,12 @@ def load_powers(table_path: Path, power_min: float, power_max: float, heat_loss:
             powers.append(power)
 
     powers.sort()
+    check_power_tag_collisions(
+        powers,
+        tagger=make_power_tag,
+        what="power_<tag>/ frequency result tree",
+    )
     return powers
-
-
-def make_power_tag(power: float) -> str:
-    text = f"{power:.5f}".rstrip("0").rstrip(".")
-    if not text:
-        text = "0"
-    return text.replace(".", "p")
 
 
 def run_command(cmd: list[str]) -> int:
@@ -300,6 +361,7 @@ def main() -> int:
     base_dir = args.base_dir.resolve()
     out_dir = args.plot_copy_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    base_dir.mkdir(parents=True, exist_ok=True)
 
     powers = load_powers(
         table_path=table_path,
@@ -316,10 +378,30 @@ def main() -> int:
     print(f"Using table: {table_path}")
     print(f"Core model: {args.core_model}")
     print(f"Heat loss: {args.heat_loss}")
+    print(f"Power-tag format version: {POWER_TAG_FORMAT_VERSION}")
     print(f"Powers ({len(powers)}): {', '.join(f'{p:.6g}' for p in powers)}")
     print(f"Base output dir: {base_dir}")
     print(f"Plot copy target: {out_dir}")
     print("-" * 70)
+    metadata_path = base_dir / "power_tags.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "power_tag_format_version": POWER_TAG_FORMAT_VERSION,
+                "powers": [
+                    {
+                        "power": power,
+                        "tag": make_power_tag(power),
+                    }
+                    for power in powers
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     failures: list[tuple[float, str, int]] = []
     total_plots = 0
@@ -364,6 +446,16 @@ def main() -> int:
             run_cmd.extend(["--stop_time", f"{args.stop_time:.12g}"])
         if args.ss_time is not None:
             run_cmd.extend(["--ss_time", f"{args.ss_time:.12g}"])
+        if args.stop_time_mode is not None:
+            run_cmd.extend(["--stop_time_mode", args.stop_time_mode])
+        if args.min_cycles_after_ss is not None:
+            run_cmd.extend(
+                ["--min_cycles_after_ss", f"{args.min_cycles_after_ss:.12g}"]
+            )
+        if args.settle_rule is not None:
+            run_cmd.extend(["--settle_rule", args.settle_rule])
+        if args.sin_mag_auto_rule is not None:
+            run_cmd.extend(["--sin_mag_auto_rule", args.sin_mag_auto_rule])
         if args.n_jobs is not None:
             run_cmd.extend(["--n_jobs", str(args.n_jobs)])
         if args.core_dir is not None:

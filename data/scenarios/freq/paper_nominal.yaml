@@ -1,0 +1,31 @@
+schema_version: 1
+kind: frequency
+id: paper_nominal
+doc: Paper-rerun frequency protocol (11 powers, 80 log points, sin_mag_auto, 12 cycles after SS).
+applies_to: [msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10]
+package_support:
+  legacy:
+    vehicle_by_core:
+      r1: MSRR.MSRRuhxNominalTrimNoTrips
+      r9: MSRR.MSRRuhxNominalTrim9RNoTrips
+powers_mw: [1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2]
+grid:
+  omega_min: 0.001
+  omega_max: 10.0
+  n: 80
+  spacing: log
+  unit: rad/s
+forcing:
+  ss_time_s: 2000.0
+  sin_mag_mode: auto
+  sin_mag_ref_mw: 0.1
+  sin_mag_min_pcm: 1.0
+  sin_mag_max_pcm: 20.0
+numerics:
+  stop_time_mode: min_cycles_after_ss
+  min_cycles_after_ss: 12.0
+low_power_protocol:
+  threshold_mw: 0.01
+  ss_factor: 400.0
+  nfloor: 1.0e-9
+  min_cycles_after_ss: 12.0

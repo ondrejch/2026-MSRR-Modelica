@@ -4,34 +4,29 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
-import shutil
-import sys
 
 try:
-    from .paths import default_startup_csv_path, default_startup_run_dir
-except ImportError:
-    from paths import default_startup_csv_path, default_startup_run_dir
+    from ._common import (
+        CORE_CHOICES,
+        ensure_supported_python,
+        add_package_argument,
+        resolve_startup_csv_path,
+        startup_plot_run_dir,
+    )
+    from .paths import default_startup_run_dir
+except ImportError:  # script-style execution from startup/
+    from _common import (
+        CORE_CHOICES,
+        ensure_supported_python,
+        add_package_argument,
+        resolve_startup_csv_path,
+        startup_plot_run_dir,
+    )
+    from paths import default_startup_run_dir
 
 
-def _ensure_supported_python() -> None:
-    """Re-exec under python3.12 when launched from an unsupported interpreter."""
-    if sys.version_info < (3, 13):
-        return
-    if os.environ.get("MSRR_PLOT_REEXEC") == "1":
-        return
-    py312 = shutil.which("python3.12")
-    if py312 is None:
-        raise SystemExit(
-            "Python 3.13 detected, but this environment's NumPy/Matplotlib build is not "
-            "compatible. Run with python3.12 (or install matching 3.13 wheels)."
-        )
-    os.environ["MSRR_PLOT_REEXEC"] = "1"
-    os.execv(py312, [py312, *sys.argv])
-
-
-_ensure_supported_python()
+ensure_supported_python()
 
 try:
     import matplotlib.pyplot as plt
@@ -94,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--core_model",
         type=str,
-        choices=("1r", "9r"),
+        choices=CORE_CHOICES,
         default="1r",
         help="Core model for default run path and CSV name",
     )
@@ -103,15 +98,24 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help=(
-            "Run directory containing startup artifacts "
-            "(default: 00runs/startup-startup_to_100kw-<core_model>)"
+            "Run directory containing startup artifacts (default: "
+            "00runs/startup-startup_to_100kw-<core_model>); the default CSV "
+            "and output names resolve against this directory, and "
+            "segmented-package runs (default "
+            "00runs/segmented/startup-<scenario>-<core_model>; under an "
+            "explicit --run_dir its segmented/ subdirectory) are probed "
+            "automatically; a CSV in the segmented default directory keeps "
+            "the default outputs beside it"
         ),
     )
     parser.add_argument(
         "--csv",
         type=Path,
         default=None,
-        help="Path to simulation CSV (default derived from run definition)",
+        help=(
+            "Path to simulation CSV (default derived from the run "
+            "definition, honoring --run_dir and the segmented/ probe)"
+        ),
     )
     parser.add_argument(
         "--out",
@@ -144,6 +148,7 @@ def parse_args() -> argparse.Namespace:
         help="Neutron production rate [n/s] at 100 kW",
     )
     parser.add_argument("--dpi", type=int, default=160, help="Figure DPI")
+    add_package_argument(parser)
     args = parser.parse_args()
 
     if args.run_dir is None:
@@ -153,11 +158,26 @@ def parse_args() -> argparse.Namespace:
             core_model=args.core_model,
         )
     if args.csv is None:
-        args.csv = default_startup_csv_path(
+        # Shared run-dir rule (startup/_common.py): an explicit --run_dir
+        # relocates the default CSV; segmented-package runs live at
+        # 00runs/segmented/startup-<scenario>-<core> by default, or under
+        # <run_dir>/segmented/ (probed automatically for 1r/9r).
+        args.csv = resolve_startup_csv_path(
             repo_root,
             scenario=SCENARIO,
             core_model=args.core_model,
+            run_dir=args.run_dir,
+            package=args.package,
         )
+    # Review 2026-10-01 M6: a CSV in the segmented default run directory
+    # keeps the default plot outputs beside it, outside 00runs/startup-*.
+    args.run_dir = startup_plot_run_dir(
+        repo_root,
+        scenario=SCENARIO,
+        core_model=args.core_model,
+        run_dir=args.run_dir,
+        csv=args.csv,
+    )
     if args.out is None:
         args.out = args.run_dir / DEFAULT_OUT_NAME
     return args
@@ -208,6 +228,10 @@ def main() -> int:
         raise FileNotFoundError(f"CSV not found: {csv_path}")
 
     df = pd.read_csv(csv_path)
+    if df.empty:
+        # Header-only CSVs would otherwise fail later with a bare
+        # IndexError/ValueError on t_s[-1] / np.argmax(power_kw).
+        raise ValueError(f"No data rows in startup CSV: {csv_path}")
 
     columns = list(df.columns)
     time_col = find_column(columns=columns, exact=("time",))
@@ -283,7 +307,16 @@ def main() -> int:
         args.fission_fraction * demand_total_kw if demand_total_kw is not None else None
     )
     ext_pcm = df[ext_reactivity_col].to_numpy(dtype=float) * 1.0e5
-    rho0_col = find_column(
+    # Physics review 2026-09-27: mPKE exports the compensation it actually
+    # applies (rho_0applied: the frozen nominal-flow rho_0nom by default);
+    # plot that, ungated. Older runs (live convention) lack the column and
+    # fall back to the flow-gated rho_0dyn reconstruction below.
+    rho0_applied_col = find_column(
+        columns=columns,
+        exact=("pke.rho_0applied",),
+        suffix=("mpke.rho_0applied", "pke.rho_0applied"),
+    )
+    rho0_col = rho0_applied_col or find_column(
         columns=columns,
         exact=("pke.rho_0sta", "pke.rho_0dyn"),
         suffix=("mpke.rho_0sta", "mpke.rho_0dyn", "pke.rho_0sta", "pke.rho_0dyn"),
@@ -297,7 +330,7 @@ def main() -> int:
         rho0_pcm = df[rho0_col].to_numpy(dtype=float) * 1.0e5
     else:
         rho0_pcm = np.zeros_like(ext_pcm)
-    if ff_col is not None:
+    if ff_col is not None and rho0_applied_col is None:
         fuel_flow_frac = df[ff_col].to_numpy(dtype=float)
         rho0_active_pcm = np.where(fuel_flow_frac > MIN_FLOW_FOR_RHO0, rho0_pcm, 0.0)
     else:
@@ -351,6 +384,13 @@ def main() -> int:
     tail_avg_kw = float(np.mean(power_kw[tail_mask]))
 
     fig, axes = plt.subplots(4, 1, figsize=(14, 14), sharex=False)
+
+    # Source-on spans are added before any legend is built so the
+    # "Source on" patch reaches every axis legend.
+    for i, (ts0, ts1) in enumerate(windows):
+        label = "Source on" if i == 0 else None
+        for axis in axes:
+            axis.axvspan(ts0 / 3600.0, ts1 / 3600.0, color="#f2c14e", alpha=0.15, label=label)
 
     ax = axes[0]
     ax.plot(t_h, power_kw, color="#1f77b4", linewidth=1.4, label="Fission power")
@@ -408,11 +448,6 @@ def main() -> int:
     ax.legend(loc="best")
     ax.set_ylim(bottom=1e-2)
 
-    for i, (ts0, ts1) in enumerate(windows):
-        label = "Source on" if i == 0 else None
-        for axis in axes:
-            axis.axvspan(ts0 / 3600.0, ts1 / 3600.0, color="#f2c14e", alpha=0.15, label=label)
-
     t_end_h = float(t_h.max())
     for axis in axes:
         axis.set_xlim(0.0, t_end_h)
@@ -431,7 +466,11 @@ def main() -> int:
     print(f"Peak power: {max_kw:.4f} kW at {max_t_h:.3f} h")
     print(f"Source windows [s]: {[(round(a, 1), round(b, 1)) for a, b in windows]}")
     if rho0_col is not None:
-        print(f"rho0 compensation variable: {rho0_col} (flow-gated with {ff_col if ff_col else 'no flow gate'})")
+        print(
+            f"rho0 compensation variable: {rho0_col} "
+            + ("(applied compensation, ungated)" if rho0_applied_col
+               else f"(flow-gated with {ff_col if ff_col else 'no flow gate'})")
+        )
     if not np.all(np.isnan(total_pcm)):
         print(f"Total reactivity variable (rho_total): {model_reactivity_label} - {rho0dyn_col} [pcm]")
         print(f"Final total reactivity: {float(total_pcm[-1]):.6g} pcm")

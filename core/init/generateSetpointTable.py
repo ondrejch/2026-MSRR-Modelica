@@ -16,6 +16,12 @@ peak-to-peak span is reported as a diagnostic only); samples must be finite;
 and the late window must hold at least ``--tail_min_samples`` samples.  Rows
 that fail are either excluded or written marked ``qualified=0`` with
 ``--accept_unconverged``.
+
+Requested powers must lie inside the validated setpoint envelope
+``MIN_SETPOINT_POWER``..``MAX_SETPOINT_POWER`` p.u. (1e-5..1.2) and are
+refused otherwise (fail closed).  Within the low-power band the long-horizon
+remedy generalizes past the exact tag-keyed entries -- see
+``resolve_long_horizon`` (rev022 N-6).
 """
 
 import argparse
@@ -38,6 +44,22 @@ if TYPE_CHECKING:  # pragma: no cover - static-analysis only
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORK_DIR = str(_REPO_ROOT / "00runs" / "tmp" / "setpoints")
+
+try:
+    from helpers.power_tags import (
+        POWER_TAG_FORMAT_VERSION,
+        check_power_tag_collisions as _check_power_tag_collisions,
+        parse_finite_number,
+        sanitize_power_tag as _sanitize_power_tag,
+    )
+except ImportError:  # script-style execution from core/init/
+    sys.path.insert(0, str(_REPO_ROOT))
+    from helpers.power_tags import (
+        POWER_TAG_FORMAT_VERSION,
+        check_power_tag_collisions as _check_power_tag_collisions,
+        parse_finite_number,
+        sanitize_power_tag as _sanitize_power_tag,
+    )
 
 try:
     from ._common import mos_escape, variable_filter_for_core
@@ -80,6 +102,89 @@ NUMBER_OF_INTERVALS_OVERRIDES: dict[str, dict[str, int]] = {
     },
 }
 MODEL_NAME_OVERRIDES: dict[str, dict[str, str]] = {}
+
+# ---------------------------------------------------------------------------
+# Power envelope and low-power long-horizon rule (rev022 N-6)
+# ---------------------------------------------------------------------------
+
+#: Validated setpoint envelope in p.u. power (1.0 = nominal).  The shipped
+#: qualified tables (``core/init/setpoints_{1r,9r}.csv``) span exactly
+#: 1e-5 .. 1.2 and no row outside it has ever been generated or qualified:
+#: the only backstop behind a rogue power would be late-window convergence,
+#: which proves a solve settled -- not that the requested power is physical
+#: or validated.  ``parse_powers`` therefore REJECTS out-of-envelope powers
+#: (fail closed, no CLI opt-out).
+MIN_SETPOINT_POWER = 1.0e-5
+MAX_SETPOINT_POWER = 1.2
+
+#: Highest p.u. power carried by the tag-keyed long-horizon tables.  Any
+#: OTHER power inside the low band ``[MIN_SETPOINT_POWER,
+#: LONG_HORIZON_BAND_MAX_POWER]`` inherits the horizons tabulated for this
+#: reference power (see ``resolve_long_horizon``) so a new low power can
+#: never silently fall back to the base horizons that made the shipped
+#: 1e-5..1e-3 points fail to converge.
+LONG_HORIZON_BAND_MAX_POWER = 1.0e-3
+
+
+def validate_power_envelope(power: float) -> float:
+    """Refuse a p.u. power outside the validated setpoint envelope.
+
+    The envelope ``[MIN_SETPOINT_POWER, MAX_SETPOINT_POWER]`` bounds the
+    shipped qualified setpoint tables; a request outside it has no validated
+    initialization data, so it is rejected with the bound named (fail
+    closed, rev022 N-6).  Zero and negative powers are handled by their own
+    pre-existing ``parse_powers`` paths (skip / refuse) before this check.
+    """
+    if not (MIN_SETPOINT_POWER <= power <= MAX_SETPOINT_POWER):
+        raise ValueError(
+            f"Power {power:g} p.u. is outside the validated setpoint envelope "
+            f"[{MIN_SETPOINT_POWER:g}, {MAX_SETPOINT_POWER:g}] p.u.; no "
+            "qualified setpoint row exists outside it, so the request is "
+            "refused (fail closed, rev022 N-6)."
+        )
+    return power
+
+
+def resolve_long_horizon(
+    core_model: str, power: float
+) -> tuple[float | None, int | None]:
+    """Resolve the low-power long-horizon remedy for one power.
+
+    Returns ``(stop_time_override, number_of_intervals_override)``; either
+    entry is ``None`` when that component has no override.  Exact tag-keyed
+    entries in ``STOP_TIME_OVERRIDES`` / ``NUMBER_OF_INTERVALS_OVERRIDES``
+    win unchanged (the shipped 1e-5/1e-4/1e-3 values).  Any OTHER power
+    inside the low band ``[MIN_SETPOINT_POWER, LONG_HORIZON_BAND_MAX_POWER]``
+    inherits the mildest tabulated remedy -- the horizons tabulated for
+    ``LONG_HORIZON_BAND_MAX_POWER`` -- so a new low power (e.g. 5e-4) can
+    never silently fall back to the base horizon that made the shipped
+    1e-5..1e-3 points fail to converge (rev022 N-6).  Powers above the band
+    return ``(None, None)`` (base horizons).
+    """
+    stop_table = STOP_TIME_OVERRIDES.get(core_model, {})
+    interval_table = NUMBER_OF_INTERVALS_OVERRIDES.get(core_model, {})
+    power_tag = sanitize_power_tag(power)
+    if power_tag in stop_table or power_tag in interval_table:
+        return stop_table.get(power_tag), interval_table.get(power_tag)
+    if MIN_SETPOINT_POWER <= power <= LONG_HORIZON_BAND_MAX_POWER:
+        reference_tag = sanitize_power_tag(LONG_HORIZON_BAND_MAX_POWER)
+        if reference_tag not in stop_table or reference_tag not in interval_table:
+            raise ValueError(
+                f"Long-horizon band rule for {core_model!r} needs the "
+                f"{reference_tag!r} entry in both override tables; the tables "
+                "were modified without updating the band rule."
+            )
+        return stop_table.get(reference_tag), interval_table.get(reference_tag)
+    return (None, None)
+
+
+def resolve_stop_time(
+    core_model: str, power: float, default_stop_time: float
+) -> float:
+    """Stop time for one power: long-horizon override if any, else default."""
+    stop_override, _interval_override = resolve_long_horizon(core_model, power)
+    return stop_override if stop_override is not None else default_stop_time
+
 
 # Region-volume weights used to summarize 9R region temperatures into
 # core-representative scalar setpoints (comparable to 1R scalar fields).
@@ -305,6 +410,11 @@ PLANT_POWER_SUBTRAHEND_COLUMNS: tuple[str, ...] = tuple(
 )
 
 def table_to_result_variable(core_model: str) -> dict[str, str]:
+    # Intentional alias: the heat exchanger's node 4 IS the outlet connector
+    # (SMD_MSR_Modelica.mo binds T_out_pFluid.T/T_out_sFluid.T as the PN4/SN4
+    # node temperatures), so heatExchanger.T_PN4_0 and heatExchanger.T_SN4_0
+    # map to the SAME result variables as TpOut_0/TsOut_0 and the CSV column
+    # pairs are byte-identical by construction (rev021 §3.6).
     if core_model == "1r":
         mapping = {
             "fuelTempSetPointNode1": "core1R.fuelchannel.fuelNode1.T",
@@ -382,7 +492,12 @@ def parse_args() -> argparse.Namespace:
         "--powers",
         type=str,
         default="1e-5, 1e-4, 1e-3, 1e-2, 0.1, 0.2,0.4,0.6,0.8,1.0,1.2",
-        help="Comma-separated power values, e.g. 1e-5,1e-4,1e-3,1e-2,0.1,0.2,0.4,0.6,0.8,1.0,1.2",
+        help=(
+            "Comma-separated p.u. power values, e.g. "
+            "1e-5,1e-4,1e-3,1e-2,0.1,0.2,0.4,0.6,0.8,1.0,1.2. Each value "
+            "must lie inside the validated setpoint envelope [1e-5, 1.2] "
+            "p.u.; out-of-envelope powers are refused (fail closed)."
+        ),
     )
     parser.add_argument(
         "--core_model",
@@ -639,11 +754,33 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def parse_finite_power(item: str) -> float:
+    """Parse one power token, refusing nonfinite spellings.
+
+    ``nan``/``inf``/``-inf`` (any case, and any numeric spelling that
+    overflows to an infinity) parse in Python but are nonphysical power
+    levels; they are rejected here, BEFORE dedup/filtering and tag
+    construction, with the offending token named.
+    """
+    return parse_finite_number(item, name="power")
+
+
 def parse_powers(powers_text: str) -> list[float]:
+    """Parse the ``--powers`` list: finite, positive, envelope-bound.
+
+    Each token must be finite (``parse_finite_power`` refuses nan/inf
+    spellings), nonzero and nonnegative (zero is skipped as nonphysical,
+    negatives are refused), and lie inside the validated setpoint envelope
+    ``[MIN_SETPOINT_POWER, MAX_SETPOINT_POWER]`` p.u.  Out-of-envelope
+    powers are REJECTED (fail closed, rev022 N-6): no qualified setpoint
+    row exists outside the envelope, and late-window convergence alone
+    would happily accept a physical nonsense request that happens to
+    settle numerically.
+    """
     parts = [item.strip() for item in powers_text.split(",") if item.strip()]
     if not parts:
         raise ValueError("No power values provided.")
-    values = sorted({float(item) for item in parts})
+    values = sorted({parse_finite_power(item) for item in parts})
 
     filtered: list[float] = []
     skipped_zero = 0
@@ -653,18 +790,43 @@ def parse_powers(powers_text: str) -> list[float]:
             continue
         if value < 0:
             raise ValueError(f"Negative power is nonphysical: {value}")
+        validate_power_envelope(value)
         filtered.append(value)
 
     if skipped_zero > 0:
         print(f"Skipping {skipped_zero} zero-power entries (nonphysical for setpoint generation).")
     if not filtered:
         raise ValueError("No non-zero power values provided after filtering.")
+    check_power_tag_collisions(filtered)
     return filtered
 
 
 def sanitize_power_tag(power: float) -> str:
-    text = f"{power:.5f}"
-    return text.replace("-", "m").replace(".", "p")
+    """Filename-safe tag for a power level, injective over distinct floats.
+
+    Shared implementation: :func:`helpers.power_tags.sanitize_power_tag`
+    (format version :data:`POWER_TAG_FORMAT_VERSION`). Re-exported here so
+    existing ``gst.sanitize_power_tag`` callers and monkeypatches keep
+    working.
+    """
+    return _sanitize_power_tag(power)
+
+
+def check_power_tag_collisions(powers: Sequence[float]) -> None:
+    """Raise if two distinct requested powers render the same power tag.
+
+    Uses this module's :func:`sanitize_power_tag` so tests can monkeypatch
+    the local name. Shared collision logic lives in
+    :func:`helpers.power_tags.check_power_tag_collisions`.
+    """
+    _check_power_tag_collisions(
+        powers,
+        tagger=sanitize_power_tag,
+        what=(
+            "CSV (power_<tag>/MSRR_ss_<tag>_res.csv) and one set of "
+            "tag-keyed overrides"
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -688,6 +850,55 @@ def _probe(call, default):
         return call()
     except Exception:  # noqa: BLE001 - provenance metadata must not abort runs
         return default
+
+
+#: Exit status when the table WAS written but some requested powers failed
+#: or did not qualify (distinct from 1 = no table / hard failure), so a
+#: campaign job can tolerate exactly this outcome and complete the table by
+#: continuation (helpers/paper-rerun/complete_setpoint_table.py).
+EXIT_TABLE_INCOMPLETE = 3
+
+#: Generator settings recorded in the table's model-version sidecar
+#: (``generation.settings``), next to the generator digest and OMC version.
+_GENERATION_SETTING_KEYS = (
+    "core_model", "model_name", "qualification_profile", "stop_time",
+    "tail_fraction", "tail_min_samples", "tail_min_duration",
+    "conv_residual_amplitude_tol", "conv_window_tol", "conv_slope_tol",
+    "conv_temperature_abs_tol", "conv_temperature_floor", "conv_power_abs_tol",
+    "conv_power_floor", "conv_population_floor", "no_feedback", "init_temp",
+    "accept_unconverged", "method", "base_stop_time", "low_stop_time",
+    "low_power_threshold", "retry_stop_time", "max_ratio",
+    "enable_steady_state", "steady_state_tol", "simflags_extra", "retry_nls",
+)
+
+
+def generation_record(args: argparse.Namespace, generator_file: str) -> dict:
+    """Generation settings for the table's model-version sidecar."""
+    import hashlib
+
+    from helpers import run_results as rr
+
+    def _json_safe(value):
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        return str(value)
+
+    settings = {
+        key: _json_safe(getattr(args, key))
+        for key in _GENERATION_SETTING_KEYS
+        if hasattr(args, key)
+    }
+    init_from = getattr(args, "init_from", None)
+    if init_from and os.path.isfile(str(init_from)):
+        settings["init_from"] = os.path.basename(str(init_from))
+        settings["init_from_sha256"] = hashlib.sha256(Path(str(init_from)).read_bytes()).hexdigest()
+    return {
+        "generator_file": os.path.basename(generator_file),
+        "generator_sha256": hashlib.sha256(Path(generator_file).read_bytes()).hexdigest(),
+        "omc_version": _probe(rr.probe_omc_version, "unavailable"),
+        "python_version": sys.version.split()[0],
+        "settings": settings,
+    }
 
 
 def _validation_stop_slack(stop_time: float) -> float:
@@ -714,10 +925,12 @@ def _workflow_python_sources() -> list[str]:
     """
     rr = _run_results()
     here = Path(__file__).resolve()
+    helpers_dir = Path(rr.__file__).resolve().parent
     return [
         str(here),
         str(here.parent / "_common.py"),
         str(Path(rr.__file__).resolve()),
+        str(helpers_dir / "plant_config.py"),
     ]
 
 
@@ -730,6 +943,22 @@ def _feedback_override_keys(model_name: str) -> tuple[str, str]:
     if "9R" in model_name or "9r" in model_name:
         return ("msre9r.aF", "msre9r.aG")
     return ("core1R.a_F", "core1R.a_G")
+
+
+def _setpoint_source_files(library_src: str, model_src: str):
+    core_dir = Path(library_src).resolve().parent
+    try:
+        from helpers.plant_config import lumped_manifest_source_files
+
+        return lumped_manifest_source_files(core_dir)
+    except Exception:  # noqa: BLE001 - hermetic tests may lack a plant deck
+        from helpers.plant_config import lumped_plant_data_path
+
+        paths = [library_src, model_src]
+        plant = lumped_plant_data_path(core_dir)
+        if plant.is_file():
+            paths.insert(0, str(plant))
+        return paths
 
 
 def build_setpoint_case_manifest(
@@ -745,6 +974,7 @@ def build_setpoint_case_manifest(
     feedback_on: bool,
     method: str = "dassl",
     variable_filter: str = "",
+    simflags: str = "",
     extra_workflow_python_files: Sequence[Path | str] | None = None,
 ) -> dict:
     """Assemble the canonical provenance manifest for one per-power case.
@@ -752,8 +982,11 @@ def build_setpoint_case_manifest(
     Every ingredient that reaches the simulation enters the request
     fingerprint: hashed Modelica sources, power level, perturbation setup,
     feedback toggles, initialization overrides, integrator, tolerance, time
-    span, output interval count, and reduced-output variable filter.  The
-    wall-clock launch stamp is recorded but excluded from the fingerprint.
+    span, output interval count, reduced-output variable filter, and the
+    ``simflags`` string the ``.mos`` passes to omc verbatim (rev021 §2.4 D8:
+    flags such as ``-steadyState`` / ``-nls=...`` change the simulation, so
+    they must move the fingerprint too).  The wall-clock launch stamp is
+    recorded but excluded from the fingerprint.
 
     ``extra_workflow_python_files`` appends caller-owned workflow modules to
     the canonical runner/helper set before hashing; duplicate paths are
@@ -775,6 +1008,7 @@ def build_setpoint_case_manifest(
         "perturbationOmega": 0.01,
         "perturbationStartTime": float(stop_time) + 1.0,
         "variable_filter": str(variable_filter),
+        "simflags": str(simflags),
     }
     if not feedback_on:
         for key in _feedback_override_keys(model_name):
@@ -793,7 +1027,7 @@ def build_setpoint_case_manifest(
     return rr.build_run_manifest(
         package_name="MSRR",
         model_name=str(model_name),
-        source_files=[library_src, model_src],
+        source_files=_setpoint_source_files(library_src, model_src),
         workflow_python_files=workflow_files,
         overrides=overrides,
         solver=str(method),
@@ -890,6 +1124,14 @@ def resolve_init_overrides(
     init_row = select_init_overrides(init_table, power, heat_loss)
     if init_row is not None:
         return init_row
+    # A --init_from miss must not silently discard the intended warm start:
+    # name the missing power key (and heat-loss flag) so a typo'd table or
+    # grid mismatch is visible in the run log (rev021 §2.4 D1).
+    print(
+        f"  WARNING: no init-table row for power key {power_key(power)!r} "
+        f"(power={power:.10g}, heatLossEnabled={int(bool(heat_loss))}); "
+        f"falling back to uniform {init_temp:g} degC initialization"
+    )
     return default_init_overrides(core_model, init_temp)
 
 
@@ -958,11 +1200,21 @@ def run_steady_state_case(
     case_dir = os.path.join(work_dir, f"power_{power_tag}")
     os.makedirs(case_dir, exist_ok=True)
 
-    model_name_file = "MSRR.mo"
-    library_name_file = "SMD_MSR_Modelica.mo"
+    from helpers.plant_config import (
+        LUMPED_LIBRARY_FILE,
+        LUMPED_MODEL_FILE,
+        LUMPED_PLANT_DATA_FILE,
+        lumped_load_file_text,
+        lumped_plant_data_path,
+    )
+
+    model_name_file = LUMPED_MODEL_FILE
+    library_name_file = LUMPED_LIBRARY_FILE
+    plant_data_src = str(lumped_plant_data_path(Path(library_src).parent))
 
     copyfile(model_src, os.path.join(case_dir, model_name_file))
     copyfile(library_src, os.path.join(case_dir, library_name_file))
+    copyfile(plant_data_src, os.path.join(case_dir, LUMPED_PLANT_DATA_FILE))
 
     file_prefix = f"MSRR_ss_{power_tag}"
     override = (
@@ -1003,12 +1255,17 @@ def run_steady_state_case(
         else ""
     )
 
+    # stopTime is rendered with the same `:.10g` canonicalization the manifest
+    # fingerprint keys on (power_level / perturbation start time above), so a
+    # non-integer stop time can never simulate a different horizon than the
+    # one recorded in the case manifest (rev021 §2.4 D7).
     mos_text = (
-        f'loadFile("{library_name_file}");\n'
-        f'loadFile("{model_name_file}");\n'
-        f'simulate({model_name},'
+        lumped_load_file_text(
+            [LUMPED_PLANT_DATA_FILE, library_name_file, model_name_file]
+        )
+        + f'simulate({model_name},'
         f'startTime=0,'
-        f'stopTime={stop_time:.0f},'
+        f'stopTime={stop_time:.10g},'
         f'numberOfIntervals={intervals},'
         f'tolerance=1E-6,'
         f'method="{method}",'
@@ -1092,6 +1349,15 @@ def run_steady_state_case(
             f"omc failed for power={power} with exit code {result.returncode}. "
             f"See {case_dir}/omc_stderr.log."
         )
+    # Physics review 2026-09-27 (B1): the 9R initial-state overrides
+    # (Tmix_0, TF*_0_regions[1]) were silently dropped by OMC before the
+    # R9MSRRuhx binding fix; refuse any case whose overrides were dropped.
+    from helpers.omc_log import check_overrides_applied
+
+    check_overrides_applied(
+        _captured_text(result.stdout) + _captured_text(result.stderr),
+        label=f"setpoint case power={power}",
+    )
 
     csv_path = result_csv_path
     if not os.path.exists(csv_path):
@@ -1163,6 +1429,15 @@ def _run_steady_state_case_body(
             f"omc failed for power={power} with exit code {result.returncode}. "
             f"See {case_dir}/omc_stderr.log."
         )
+    # Physics review 2026-09-27 (B1): the 9R initial-state overrides
+    # (Tmix_0, TF*_0_regions[1]) were silently dropped by OMC before the
+    # R9MSRRuhx binding fix; refuse any case whose overrides were dropped.
+    from helpers.omc_log import check_overrides_applied
+
+    check_overrides_applied(
+        _captured_text(result.stdout) + _captured_text(result.stderr),
+        label=f"setpoint case power={power}",
+    )
 
     raw_csv_path = (
         result_tmp_path
@@ -1206,23 +1481,19 @@ def _run_steady_state_case_body(
 
 
 def _count_data_rows(path: str) -> int:
-    with open(path, "rb") as handle:
-        header = handle.readline()
-        if not header:
+    """Count non-empty data rows below the header (matches read_tail_means).
+
+    The reader skips empty rows (``if not row: continue``), so the counter
+    must too -- counting raw newlines would let trailing blank lines shrink
+    the averaged tail window. Kept as a path-taking seam for unit tests
+    (e.g. a synthetic CSV with trailing blank lines).
+    """
+    with open(path, newline="") as handle:
+        reader = csv.reader(handle)
+        header = next(reader, None)
+        if header is None:
             raise ValueError(f"Empty CSV: {path}")
-        count = 0
-        last_byte = b"\n"
-        while True:
-            buf = handle.read(1024 * 1024)
-            if not buf:
-                break
-            count += buf.count(b"\n")
-            last_byte = buf[-1:]
-        if count == 0:
-            return 0
-        if last_byte != b"\n":
-            count += 1
-        return count
+        return sum(1 for row in reader if row)
 
 
 def _tail_start_index(
@@ -1537,6 +1808,10 @@ def evaluate_tail_convergence(
 
     Plant groups whose columns are absent are skipped with an explicit note
     instead of failing -- lumped and segmented models name them differently.
+    A missing REQUESTED-STATE column is the opposite: the setpoint signals
+    that actually get exported must be present, so an absent requested-state
+    column fails that column's check (status ``"fail"``, never ``"skipped"``)
+    and disqualifies the row (rev021 §2.4 D3).
     A late window holding fewer than ``tail_min_samples`` samples fails
     every scored check (insufficient sampling is reported explicitly, never
     silently absorbed).
@@ -1546,7 +1821,6 @@ def evaluate_tail_convergence(
         raise ValueError(f"No data rows in CSV: {csv_path}")
     start_index = _tail_start_index(sample_count, tail_fraction, tail_min_samples)
 
-    plant_population = next(iter(PLANT_POPULATION_COLUMNS))
     wanted: list[str] = list(state_columns)
     for candidate in (
         *PLANT_POPULATION_COLUMNS,
@@ -1765,25 +2039,47 @@ def evaluate_tail_convergence(
         absent_note: str | None = None,
         *,
         gated: bool = True,
+        absent_is_fail: bool = False,
     ) -> None:
-        """Check each listed (series_name, report_label) pair of the group."""
+        """Check each listed (series_name, report_label) pair of the group.
+
+        ``absent_is_fail=True`` (requested-state columns) turns a missing
+        column into a hard failure: the exported setpoint signals must be
+        present, and a variable-filter mismatch must not silently skip the
+        signal's check (rev021 §2.4 D3).  Plant groups keep the historical
+        skip-with-note behavior because lumped and segmented models name
+        those columns differently.
+        """
         for series_name, report_label in columns:
             absent = series_name not in present
             values = series.get(series_name, [])
             if absent:
-                checks.append(
-                    make_check(
-                        label,
-                        report_label,
-                        None,
-                        classify_convergence_family(series_name),
-                        gated=gated,
-                        skip_reason=(
-                            f"column absent: {absent_note}" if absent_note
-                            else f"column absent: {series_name}"
-                        ),
+                if absent_is_fail:
+                    checks.append(
+                        {
+                            "group": label,
+                            "column": report_label,
+                            "status": "fail",
+                            "reason": (
+                                "requested-state column absent from result "
+                                f"CSV: {series_name}"
+                            ),
+                        }
                     )
-                )
+                else:
+                    checks.append(
+                        make_check(
+                            label,
+                            report_label,
+                            None,
+                            classify_convergence_family(series_name),
+                            gated=gated,
+                            skip_reason=(
+                                f"column absent: {absent_note}" if absent_note
+                                else f"column absent: {series_name}"
+                            ),
+                        )
+                    )
                 continue
             if not enough_samples or len(values) != n_tail:
                 checks.append(
@@ -1815,7 +2111,11 @@ def evaluate_tail_convergence(
                 )
             )
 
-    evaluate_group("requested_states", [(name, name) for name in state_columns])
+    evaluate_group(
+        "requested_states",
+        [(name, name) for name in state_columns],
+        absent_is_fail=True,
+    )
 
     population_present = [c for c in PLANT_POPULATION_COLUMNS if c in present]
     if population_present:
@@ -2098,6 +2398,10 @@ def write_table(
     rows: list[dict[str, float]],
     output_path: str,
     steady_state_columns: list[str],
+    *,
+    model_sources: "dict[str, str] | None" = None,
+    generator: str = "core.init.generateSetpointTable",
+    generation: "dict | None" = None,
 ) -> None:
     """Write the setpoint table atomically.
 
@@ -2106,6 +2410,12 @@ def write_table(
     :func:`os.replace` once written, flushed, and fsynced, so an interrupted
     run can never leave a truncated or partially written table at the final
     path and two concurrent writers cannot clobber each other's temp file.
+
+    The model-version sidecar ``<stem>.model_version.json``
+    (``helpers.setpoint_model_version``) is written next to the table. It
+    binds the table to the lumped sources in *model_sources* (names from
+    ``MODEL_SOURCES`` -> the files actually compiled; omitted names default
+    to ``core/``).
     """
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     header = ["power", "heatLossEnabled"] + steady_state_columns + [QUALIFIED_COLUMN]
@@ -2135,6 +2445,26 @@ def write_table(
         except OSError:
             pass
         raise
+    from helpers.setpoint_model_version import write_sidecar
+
+    write_sidecar(output_path, sources=model_sources, generator=generator, generation=generation)
+
+
+def model_sources_for(model_src: str, library_src: str) -> dict[str, str]:
+    """The lumped sources a generator run compiles, keyed for the sidecar."""
+    from helpers.plant_config import lumped_plant_data_path
+
+    try:
+        plant_data = str(lumped_plant_data_path(Path(library_src).parent))
+    except (OSError, ValueError):
+        # No PlantData next to the library: the sidecar records the source
+        # as missing, which leaves the table unversioned.
+        plant_data = str(Path(library_src).parent / "generated" / "MSRR_PlantData.mo")
+    return {
+        "SMD_MSR_Modelica.mo": library_src,
+        "MSRR.mo": model_src,
+        "generated/MSRR_PlantData.mo": plant_data,
+    }
 
 
 def table_row_key(row: dict[str, float]) -> tuple[str, int]:
@@ -2215,7 +2545,8 @@ def run_power_case(
     init_overrides: dict[str, float] | None,
     feedback_on: bool,
     omc_timeout_seconds: float | None = None,
-    use_provenance: bool = False,
+    *,
+    use_provenance: bool,
     convergence_window_tolerance: float = DEFAULT_CONVERGENCE_WINDOW_TOLERANCE,
     convergence_slope_tolerance: float = DEFAULT_CONVERGENCE_SLOPE_TOLERANCE,
     convergence_temperature_abs_tol: float = DEFAULT_TEMPERATURE_ABS_TOLERANCE,
@@ -2230,8 +2561,25 @@ def run_power_case(
     quarantine_root: str | None = None,
     claim_timeout_s: float | None = None,
 ) -> dict[str, float]:
+    """Simulate one power case and return its setpoint table row.
+
+    The returned row always carries the ``qualified`` bookkeeping column,
+    but ``use_provenance`` decides whether that verdict is earned.  The
+    parameter is keyword-only and has no default, so every library caller
+    must pass it explicitly; the CLI ``main()`` always passes
+    ``use_provenance=True``, which builds the requested-result manifest,
+    validates/reuses-or-quarantines the per-power CSV, and runs the
+    late-window convergence checks (``evaluate_tail_convergence``) that set
+    ``qualified=0`` on failure; such rows enter the output table only with
+    ``--accept_unconverged``.  An explicit ``use_provenance=False`` builds
+    no manifest and runs no late-window checks: the plain existence-based
+    CSV reuse is kept (the historical library/unit-test surface).
+    """
     power_tag = sanitize_power_tag(power)
-    interval_override = NUMBER_OF_INTERVALS_OVERRIDES.get(core_model, {}).get(power_tag)
+    # rev022 N-6: intervals follow the shared long-horizon rule (exact
+    # tabulated entries plus the continuous low-power band), not the exact
+    # tag alone.
+    interval_override = resolve_long_horizon(core_model, power)[1]
     variable_filter = variable_filter_for_core(core_model)
     csv_path = os.path.join(
         work_dir,
@@ -2418,13 +2766,24 @@ def main() -> None:
 
     powers = parse_powers(args.powers)
     core_dir = os.path.abspath(args.core_dir)
-    model_src = os.path.abspath(args.model) if args.model else os.path.join(core_dir, "MSRR.mo")
+    # One sentinel convention for both generators (rev021 §3.6): ``None``
+    # (the argparse default) means "use the core_dir / core_model default",
+    # resolved with the same strip-and-test expression everywhere.
+    model_src = (
+        os.path.abspath(args.model.strip())
+        if args.model is not None and args.model.strip()
+        else os.path.join(core_dir, "MSRR.mo")
+    )
     library_src = (
-        os.path.abspath(args.library)
-        if args.library
+        os.path.abspath(args.library.strip())
+        if args.library is not None and args.library.strip()
         else os.path.join(core_dir, "SMD_MSR_Modelica.mo")
     )
-    base_model_name = args.model_name or MODEL_NAME_BY_CORE[args.core_model]
+    base_model_name = (
+        args.model_name.strip()
+        if args.model_name is not None and args.model_name.strip()
+        else MODEL_NAME_BY_CORE[args.core_model]
+    )
     work_dir = os.path.abspath(args.work_dir)
     if args.output.strip():
         output_path = os.path.abspath(args.output)
@@ -2513,10 +2872,7 @@ def main() -> None:
                 ),
                 model_src=model_src,
                 library_src=library_src,
-                stop_time=STOP_TIME_OVERRIDES.get(args.core_model, {}).get(
-                    sanitize_power_tag(power),
-                    args.stop_time,
-                ),
+                stop_time=resolve_stop_time(args.core_model, power, args.stop_time),
                 variable_names=requested_result_vars,
                 tail_fraction=args.tail_fraction,
                 tail_min_samples=args.tail_min_samples,
@@ -2610,7 +2966,11 @@ def main() -> None:
         raise SystemExit(1)
 
     succeeded = len(table_rows)
+    model_sources = model_sources_for(model_src, library_src)
     if args.append and os.path.exists(output_path):
+        from helpers.setpoint_model_version import require_appendable
+
+        require_appendable(output_path, sources=model_sources)
         existing = read_existing_table_rows(output_path, steady_state_columns)
         table_rows = merge_table_rows(existing, table_rows)
     else:
@@ -2619,6 +2979,8 @@ def main() -> None:
         rows=table_rows,
         output_path=output_path,
         steady_state_columns=steady_state_columns,
+        model_sources=model_sources,
+        generation=generation_record(args, __file__),
     )
 
     print("=" * 72)
@@ -2641,7 +3003,7 @@ def main() -> None:
                     f"  power={power}: rerun after a longer --stop_time, or "
                     "pass --accept_unconverged to mark it as unqualified"
                 )
-        raise SystemExit(1)
+        raise SystemExit(EXIT_TABLE_INCOMPLETE)
 
 
 if __name__ == "__main__":

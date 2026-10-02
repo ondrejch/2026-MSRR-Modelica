@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scenario.schema.json",
+  "title": "MSRR scenario deck",
+  "description": "What we do to a plant: forcing schedules, horizons, solver, vehicle names. Array LENGTHS stay Modelica structural parameters; this file supplies values and documents those lengths. Enforced at load time by helpers.scenario_config (raw and merged) via helpers.data_validation (errors name the file and dotted path).",
+  "type": "object",
+  "required": ["schema_version", "kind", "id"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": {
+      "type": "string",
+      "enum": ["startup", "transients", "frequency", "campaign", "radial_demo"],
+      "description": "Scenario family. Maps to data/scenarios/<dir>/. A runner's requested kind must match this value."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable scenario name (CLI --scenario)."
+    },
+    "doc": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required on scenarios that do not extend a parent; overlay fragments inherit the parent's documentation."
+    },
+    "extends": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional same-kind parent scenario id; maps are deep-merged. Chains are cycle-checked and limited to 5 hops (helpers.scenario_config.MAX_EXTENDS_DEPTH); failures name the offending chain."
+    },
+    "applies_to": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^.+\\.[a-z0-9_]+$"
+      },
+      "description": "Plant.core ids (plant id + '.' + core key), e.g. msrr.r1. The core key must belong to the deck's core roster (currently msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10); runners enforce membership of the selected core at run time and record a deliberate --allow-unlisted-core override in the run provenance. The schema deliberately does not hard-code the roster."
+    },
+    "package_support": {
+      "type": "object",
+      "description": "legacy class names and whether segmented needs a generated wrapper (array-size change).",
+      "properties": {
+        "legacy": { "$ref": "#/$defs/packageSupportBranch" },
+        "segmented": { "$ref": "#/$defs/packageSupportBranch" }
+      }
+    },
+    "numerics": {
+      "type": "object",
+      "description": "stop_time, intervals, solver, max_step. Experiment-specific.",
+      "properties": {
+        "start_time_s": { "type": "number", "minimum": 0 },
+        "stop_time_s": { "type": "number", "exclusiveMinimum": 0 },
+        "uhx_stop_time_s": { "type": "number", "exclusiveMinimum": 0 },
+        "number_of_intervals": { "type": "integer", "minimum": 1 },
+        "method": { "type": "string" },
+        "tolerance": { "type": "number", "exclusiveMinimum": 0 },
+        "max_step_size_s": { "type": "number", "exclusiveMinimum": 0 },
+        "step_output_interval_s": { "type": "number", "exclusiveMinimum": 0 },
+        "stop_time_mode": { "type": "string", "enum": ["fixed", "min_cycles_after_ss"] },
+        "min_cycles_after_ss": { "type": "number", "exclusiveMinimum": 0 },
+        "output_interval_mode": { "type": "string" },
+        "output_intervals_per_second": { "type": "number", "exclusiveMinimum": 0 },
+        "segmented_trip_min_stop_time_s": { "type": "number", "exclusiveMinimum": 0 },
+        "segmented_flow_min_stop_time_s": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "structural": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 1 },
+      "description": "Array lengths the emitter must write into a wrapper (numUhxSteps, numSourceSteps, …). Each value is coupled to the matching forcing schedule length."
+    },
+    "poisons": {
+      "type": "object",
+      "description": "Optional homogeneous poison controls. Default is tracking and feedback off.",
+      "properties": {
+        "tracking": { "type": "boolean" },
+        "feedback": { "type": "boolean" },
+        "initialization": {
+          "type": "string",
+          "enum": ["steady_state"],
+          "description": "Only steady_state is accepted; fixed_start is refused at load time by helpers.scenario_config."
+        },
+        "dataset": { "type": "string", "minLength": 1 }
+      }
+    },
+    "forcing": {
+      "type": "object",
+      "description": "Source, reactivity, UHX demand, pump ramps, sine. Not plant volumes.",
+      "properties": {
+        "powerLevel": { "$ref": "quantity.schema.json" },
+        "sine_pcm": { "$ref": "quantity.schema.json" },
+        "heat_loss": { "type": ["boolean", "number"] },
+        "source": {
+          "type": "object",
+          "properties": {
+            "strength": { "$ref": "quantity.schema.json" },
+            "times_s": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "number" },
+              "description": "Strictly increasing step times."
+            },
+            "amplitudes": {
+              "type": "array",
+              "description": "Numbers or the 'S' (strength) placeholder; length must equal times_s."
+            },
+            "amplitudes_n_s": {
+              "type": "array",
+              "description": "Numbers or the 'S' (strength) placeholder; length must equal times_s."
+            }
+          }
+        },
+        "reactivity_pcm": {
+          "type": "object",
+          "required": ["times_s", "amplitudes"],
+          "properties": {
+            "times_s": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "number" },
+              "description": "Strictly increasing step times."
+            },
+            "amplitudes": {
+              "type": "array",
+              "items": { "type": "number" },
+              "description": "Signed pcm amplitudes; length must equal times_s."
+            }
+          }
+        },
+        "uhx_demand": { "$ref": "#/$defs/uhxDemand" },
+        "pump": {
+          "type": "object",
+          "properties": {
+            "freeConvFF": {
+              "$ref": "quantity.schema.json",
+              "description": "Flow-fraction floor; value in (0, 1]."
+            },
+            "rampUpTo": {
+              "$ref": "quantity.schema.json",
+              "description": "Ramp targets; each value in (0, 1]."
+            },
+            "rampUpTime_s": {
+              "type": "array",
+              "items": { "type": "number" },
+              "description": "Strictly increasing; length must equal numRampUp and rampUpK_s."
+            },
+            "rampUpK_s": {
+              "type": "array",
+              "items": { "type": "number", "exclusiveMinimum": 0 },
+              "description": "Positive time constants; length must equal rampUpTime_s."
+            },
+            "tripTime_s": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "description": "Named transient cases (step pcm, flow fraction, uhx_trip schedule). Runners load STEP_PCM / FLOW_CASES from this list; ids must be unique.",
+      "items": {
+        "type": "object",
+        "required": ["id", "family"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "family": { "type": "string", "enum": ["step", "flow", "uhx_trip"] },
+          "pcm": { "type": "number" },
+          "dollars": { "type": "number", "exclusiveMinimum": 0, "description": "Dollar label of an insertion; runners apply it at each core's own nominal-flow 1 $ (helpers.circulation_dollar), and the case pcm records the reference (dollar_pcm.value) amplitude. Step rows use their own label; a flow row's label sets the size of its insertion (an unlabelled flow row inserts the step_1dol amplitude)." },
+          "insert_s": { "type": "number", "minimum": 0 },
+          "pump_trip_s": { "type": "number", "minimum": 0 },
+          "flow": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+          "needs_wrapper": { "type": "boolean" },
+          "times_s": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Strictly increasing; length must equal demand_W."
+          },
+          "demand_W": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 0 }
+          },
+          "dhrs": {
+            "type": "object",
+            "properties": {
+              "bleed_frac": { "type": "number", "minimum": 0, "maximum": 1 },
+              "max_frac": { "type": "number", "minimum": 0, "maximum": 1 },
+              "time_s": { "type": "number", "exclusiveMinimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "description": "Frequency sweep omega range and point count. CLI --freq_min/--num_freq overlay this when those flags are omitted.",
+      "properties": {
+        "omega_min": { "type": "number", "exclusiveMinimum": 0 },
+        "omega_max": { "type": "number", "exclusiveMinimum": 0 },
+        "omega": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "description": "Explicit points; strictly increasing when more than one."
+        },
+        "n": { "type": "integer", "minimum": 1 },
+        "spacing": { "type": "string" },
+        "unit": { "$ref": "quantity.schema.json#/properties/unit" }
+      }
+    },
+    "powers_mw": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "number", "exclusiveMinimum": 0 }
+    },
+    "low_power_protocol": {
+      "type": "object",
+      "properties": {
+        "threshold_mw": { "type": "number", "exclusiveMinimum": 0 },
+        "ss_factor": { "type": "number", "exclusiveMinimum": 0 },
+        "nfloor": { "type": "number", "exclusiveMinimum": 0 },
+        "min_cycles_after_ss": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "init": {
+      "type": "object",
+      "description": "Setpoint row selection and per-core T overlay. Not the setpoint CSV.",
+      "properties": {
+        "power_mw": { "type": "number", "exclusiveMinimum": 0 },
+        "heat_loss": { "type": ["boolean", "number"] },
+        "sync_loop_setpoints": { "type": "boolean" },
+        "per_core": {
+          "type": "object",
+          "propertyNames": { "enum": ["r1", "r9"] },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "TF1": { "$ref": "quantity.schema.json", "description": "degC." },
+              "TF2": { "$ref": "quantity.schema.json", "description": "degC." },
+              "TG": { "$ref": "quantity.schema.json", "description": "degC." }
+            }
+          }
+        }
+      }
+    },
+    "display": {
+      "type": "object",
+      "description": "Plot phase lines / windows. omc does not consume this."
+    },
+    "package": {
+      "type": "string",
+      "enum": ["legacy", "segmented"],
+      "description": "Campaign composition package (campaign kind)."
+    },
+    "cores": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["r1", "r9"] },
+      "description": "Campaign core list (campaign kind)."
+    },
+    "scenarios": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "description": "Campaign composition slots -> scenario ids (campaign kind)."
+    },
+    "setpoints": {
+      "type": "object",
+      "description": "Campaign setpoint qualification options (campaign kind)."
+    },
+    "vehicle": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Committed SegmentedMSR.Demos.<name> demo vehicle class the deck runs (radial_demo kind). The SegmentedMSR.Demos prefix is enforced by name (helpers.scenario_config.RADIAL_DEMO_VEHICLE_PREFIX), and the deck's radial_config identity must EQUAL the vehicle's code-owned contract field by field (radial_demo_contract_mismatches) - a deck may not claim a dataset id, fingerprint, HX model, flow direction, or flow distribution the compiled vehicle does not bind."
+    },
+    "maturity": {
+      "type": "string",
+      "enum": ["exploratory_geometry"],
+      "description": "Dataset maturity label (radial_demo kind). The loader requires exactly 'exploratory_geometry' (helpers.scenario_config.RADIAL_DEMO_MATURITY): demo vehicles carry SYNTHETIC placeholder geometry with no physical provenance - never a plant prediction."
+    },
+    "radial_config": {
+      "type": "object",
+      "description": "Structural radial/loop identity the deck claims (radial_demo kind). Keys are exactly the loader's _RADIAL_DEMO_RADIAL_KEYS vocabulary (unknown keys refused); the claimed identity must equal the named vehicle's code-owned contract (radial_demo_contract_mismatches).",
+      "properties": {
+        "enabled": {
+          "const": true,
+          "description": "radial_demo decks describe ENABLED stacks (a disabled run needs no radial_demo deck - the production vehicles stay disabled by default)."
+        },
+        "annular_fluid_mode": {
+          "type": "string",
+          "enum": ["static", "circulating"],
+          "description": "Default static."
+        },
+        "annular_heat_exchanger_enabled": {
+          "type": "boolean",
+          "description": "Default false; true requires annular_fluid_mode='circulating' (plan §2.2)."
+        },
+        "annular_heat_exchanger_model": {
+          "type": "string",
+          "enum": ["finite_conductance_prescribed_sink", "none"],
+          "description": "Must be exactly 'finite_conductance_prescribed_sink' while annular_heat_exchanger_enabled=true and 'none' while false (the only implemented heat-exchanger model; the structural switch is the enabled boolean)."
+        },
+        "geometry_policy": {
+          "type": "string",
+          "enum": ["strict_physical", "effective_thermal"],
+          "description": "Default strict_physical."
+        },
+        "flow_direction": {
+          "type": "string",
+          "enum": ["bottom_to_top", "top_to_bottom"],
+          "description": "Default bottom_to_top."
+        },
+        "channel_flow_fractions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number", "minimum": 0 },
+          "description": "One fraction per annular-loop channel [1]; each >= 0, sum = 1 within 1e-6 (SegmentedMSR.Core.fracTol). Required in circulating mode; refused in static mode (static carries no loop distribution; plan §10.12)."
+        },
+        "radial_dataset_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty identity of the committed demo dataset."
+        },
+        "radial_maturity": {
+          "type": "string",
+          "enum": ["exploratory_geometry"],
+          "description": "Must be 'exploratory_geometry' (the committed synthetic demo datasets)."
+        },
+        "radial_fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty demo radial fingerprint; must equal the vehicle's derived digest."
+        },
+        "annular_loop_fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Non-empty demo annular-loop fingerprint; must equal the vehicle's derived digest."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "startup" } }, "required": ["kind"] },
+      "then": {
+        "required": ["numerics", "forcing"],
+        "properties": {
+          "numerics": { "required": ["stop_time_s", "number_of_intervals"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "transients" } }, "required": ["kind"] },
+      "then": {
+        "required": ["numerics", "cases"],
+        "properties": { "numerics": { "required": ["stop_time_s"] } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "frequency" } }, "required": ["kind"] },
+      "then": { "required": ["grid"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "campaign" } }, "required": ["kind"] },
+      "then": { "required": ["scenarios"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "radial_demo" } }, "required": ["kind"] },
+      "then": {
+        "required": ["vehicle", "maturity", "radial_config", "numerics"],
+        "properties": {
+          "numerics": { "required": ["stop_time_s", "number_of_intervals"] }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "packageSupportBranch": {
+      "type": "object",
+      "properties": {
+        "vehicle_by_core": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "propertyNames": { "enum": ["r1", "r9"] },
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            }
+          ]
+        },
+        "base_vehicle": { "type": "string", "minLength": 1 },
+        "needs_wrapper": { "type": "boolean" },
+        "power_mw_required": { "type": "number", "exclusiveMinimum": 0 },
+        "note": { "type": "string" }
+      }
+    },
+    "uhxDemand": {
+      "description": "Either a times_s + demand_W/amplitudes_W schedule (strictly increasing times, equal lengths, non-negative power) or a frac-form ramp.",
+      "properties": {
+        "times_s": { "type": "array", "minItems": 1, "items": { "type": "number" } },
+        "amplitudes_W": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+        "demand_W": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+        "fission_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "final_W": { "type": "number", "minimum": 0 },
+        "ramp_start_s": { "type": "number", "minimum": 0 },
+        "delta_s": { "type": "number", "exclusiveMinimum": 0 },
+        "frac": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

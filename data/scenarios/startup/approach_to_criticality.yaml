@@ -1,0 +1,99 @@
+# Approach to criticality. Shared 1R/9R schedule; per-core init T differs.
+schema_version: 1
+kind: startup
+id: startup
+doc: >
+  Cold subcritical hold through a 29-step reactivity staircase and four
+  pulsed 1e8 n/s source windows, with a three-stage pump ramp. UHX demand
+  stays zero. CLI --scenario startup.
+applies_to: [msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10]
+package_support:
+  legacy:
+    vehicle_by_core:
+      r1: MSRR.MSRRstartUpCriticality
+      r9: MSRR.MSRRstartUpCriticality9R
+  segmented:
+    base_vehicle: trim_rig
+    note: Current segmented mapping is the simplified 2-step schedule in segmented_simplified.yaml.
+numerics:
+  start_time_s: 0.0
+  stop_time_s: 108000.0
+  number_of_intervals: 1080000
+  method: dassl
+  tolerance: 1.0e-6
+  max_step_size_s: 0.01
+structural:
+  numSourceSteps: 8
+  numExternalReactivitySteps: 29
+  numUhxSteps: 1
+  numRampUp: 3
+forcing:
+  powerLevel:
+    value: 0.0
+    unit: "1"
+  sine_pcm:
+    value: 0.0
+    unit: pcm
+  heat_loss: true
+  source:
+    strength:
+      value: 1.0e8
+      unit: 1/s
+      doc: External neutron source used during ON windows.
+    times_s: [0.0, 40200.0, 43200.0, 65400.0, 68400.0, 83400.0, 86400.0, 101400.0]
+    amplitudes: [S, 0, S, 0, S, 0, S, 0]
+  reactivity_pcm:
+    reference: flow_dependent_critical
+    doc: >
+      Amplitudes are measured from the critical position at the pump flow in
+      effect at each step (physics review 2026-09-27). With the legacy
+      kinetics' circulating-fuel compensation frozen at nominal flow, the
+      legacy startup models add the offset -(loss(FF=1) - loss(FF_stage)),
+      i.e. loss(FF_stage) - loss(FF=1) <= 0, internally
+      (flowReferencedStaircase = true; 1R -69.56 / -34.37 / -18.27 / 0 pcm,
+      9R -80.78 / -41.07 / -22.03 / 0 pcm at FF = 0.01 / 0.25 / 0.5 / 1.0),
+      so "0 pcm" is just critical on every pump-stage plateau. The offset
+      follows the target stage, while the pump reaches it along a finite
+      ramp, so the re-referencing is exact on the plateaus and approximate
+      during the short ramps between them.
+    times_s: [-1.0, 3600.0, 7200.0, 10800.0, 14400.0, 18000.0, 21600.0, 25200.0, 28800.0, 32400.0, 36000.0, 39600.0, 43200.0, 46800.0, 50400.0, 54000.0, 57600.0, 61200.0, 64800.0, 68400.0, 72000.0, 75600.0, 79200.0, 82800.0, 86400.0, 90000.0, 93600.0, 97200.0, 100800.0]
+    amplitudes: [-3500.0, -2000.0, -1000.0, -700.0, -500.0, -350.0, -200.0, -100.0, -50.0, -20.0, -5.0, 0.0, -350.0, -200.0, -100.0, -50.0, -20.0, -5.0, 0.0, -100.0, -50.0, -20.0, -5.0, 0.0, -100.0, -50.0, -20.0, -5.0, 0.0]
+  pump:
+    freeConvFF:
+      value: 0.01
+      unit: "1"
+    rampUpTo:
+      value: [0.25, 0.50, 1.0]
+      unit: "1"
+    rampUpTime_s: [50400.0, 72000.0, 90000.0]
+    rampUpK_s: [50.0, 50.0, 50.0]
+    tripTime_s: 10800000.0
+  uhx_demand:
+    times_s: [0.0]
+    amplitudes_W: [0.0]
+init:
+  per_core:
+    r1:
+      TF1:
+        value: 570.0000000000202
+        unit: degC
+        doc: 0-power fuel-node-1 setpoint baked into MSRRstartUpCriticality.
+      TF2:
+        value: 570.0000000000202
+        unit: degC
+      TG:
+        value: 570.00000000002
+        unit: degC
+    r9:
+      TF1:
+        value: 570.0
+        unit: degC
+        doc: 0-power fuel-node-1 setpoint baked into MSRRstartUpCriticality9R (the 570 degC isothermal zero-power critical reference, as for r1; physics review 2026-09-27, formerly 552.835 degC).
+      TF2:
+        value: 570.0
+        unit: degC
+      TG:
+        value: 570.0
+        unit: degC
+display:
+  phase_boundaries_s: [43200.0, 68400.0, 86400.0]

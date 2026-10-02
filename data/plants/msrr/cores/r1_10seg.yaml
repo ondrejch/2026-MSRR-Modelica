@@ -1,0 +1,160 @@
+# One-channel x 10-axial-segment core. CLI --core_model 1r10seg (TASK-20260906-01).
+# FIRST CUT: uniform partition of the r1 2-segment totals. No measured axial
+# power/temperature profile exists in the repository; refinement from measured
+# data is a follow-up. Coarsening anchor: grouping segments 1-5 / 6-10
+# reproduces the r1 2-segment values exactly (0.2/0.2 m3, 0.465/0.465,
+# 0.035/0.035, 0.5/0.5).
+# Core maturity, two axes (TASK-20260908-01 P2; split after the rev031
+# review): machine-readable labels validated at load time by
+# helpers/plant_config.py against owner-settable enums.
+#   maturity (implementation): reference_regression | discretization_study |
+#     exploratory_geometry
+#   physical_data_maturity: reviewed_design_basis | legacy_inherited |
+#     pending_source_review | synthetic
+maturity: discretization_study
+physical_data_maturity: legacy_inherited
+n_chan:
+  value: 1
+  unit: "1"
+  doc: Channel count (single channel, as r1).
+n_seg:
+  value: 10
+  unit: "1"
+  doc: Axial salt segments (10-segment axial resolution; uniform first cut).
+cell_vol:
+  value: [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04]
+  unit: m3
+  doc: Salt volume per axial node; uniform partition of the r1 total (2 x 0.2 m3). Sum = 0.4 m3.
+  source: cores/r1.yaml cell_vol (uniform first-cut partition)
+vol_graphite:
+  value: 1.758
+  unit: m3
+  doc: Graphite volume worth of heat capacity (vol_GN); inherited unchanged from r1. Named capacity, not pitch*dz*annulus.
+  source: MSRR.Components.MSRR1R fuelchannel.vol_GN / SegmentedMSR.Reactors.volGN1R
+hAnom:
+  value: 4565.0
+  unit: W/K
+  doc: Channel-total UA at pump FF = 1; inherited unchanged from r1.
+  source: cores/r1.yaml hAnom (TASK-20261001-01 recomputation)
+q_fiss:
+  value: [0.093, 0.093, 0.093, 0.093, 0.093, 0.093, 0.093, 0.093, 0.093, 0.093]
+  unit: "1"
+  doc: Direct fission heat split to the ten salt nodes; uniform partition of the r1 total (2 x 0.465). Sum = 0.93.
+  source: cores/r1.yaml q_fiss (uniform first-cut partition)
+q_mod:
+  value: [0.007, 0.007, 0.007, 0.007, 0.007, 0.007, 0.007, 0.007, 0.007, 0.007]
+  unit: "1"
+  doc: Direct-to-moderator heat split (product PerCell); uniform partition of the r1 total (2 x 0.035). Sum = 0.07 = kG.
+  source: cores/r1.yaml q_mod (uniform first-cut partition); lumped kG = 0.07
+kG:
+  value: 0.07
+  unit: "1"
+  doc: Lumped single-graphite-node fission fraction (kG); inherited unchanged from r1. Segmented product splits this equally over nSeg.
+  source: MSRR.Components.MSRR1R fuelchannel.kG
+kHT:
+  value: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+  unit: "1"
+  doc: Convection split over the ten salt nodes (htFrac); uniform partition of the r1 total (2 x 0.5). Sum = 1.0.
+  source: cores/r1.yaml kHT (uniform first-cut partition)
+flow_frac:
+  value: [1.0]
+  unit: "1"
+  doc: Design flow split over channels; 1R is a single channel.
+IF:
+  value: [0.5, 0.5]
+  unit: "1"
+  doc: Fuel-node importance weights IF1, IF2. The product feedback API stays 2-node (segments 1-5 / 6-10 map to nodes 1 / 2).
+  source: MSRR.Components.MSRR1R react.IF1/IF2
+IG:
+  value: 1.0
+  unit: "1"
+  doc: Graphite importance weight; inherited unchanged from r1.
+  source: MSRR.Components.MSRR1R react.IG
+channel_geom:
+  Ac:
+    value: 1.5882
+    unit: m2
+  LF:
+    value: [0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575]
+    unit: m
+  ArF:
+    value: [3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172]
+    unit: m2
+  e:
+    value: 0.08
+    unit: "1"
+hAExp:
+  value: 0.33
+  unit: "1"
+  doc: Lumped fuel-channel film exponent (hA = hAnom * FF^hAExp); inherited unchanged from r1.
+  source: MSRR.Components.FuelChannel.hAExp
+# Lattice metadata for the SegmentedMSR bind. These do NOT currently
+# set inventories; cell_vol and vol_graphite do.
+channel_map:
+  pitch_type: Square
+  pitch:
+    value: 0.02
+    unit: m
+    doc: Lattice pitch; inherited unchanged from r1. Does not control heat capacity.
+  dz:
+    value: 0.14
+    unit: m
+    doc: Axial pitch per segment (10 x 0.14 m = 1.4 m = 2 x the r1 value 0.7 m). Does not control heat capacity.
+  chanR:
+    value: [0.008]
+    unit: m
+    doc: Channel radius; inherited unchanged from r1. Does not control heat capacity.
+  xy:
+    value: [[0.0, 0.0]]
+    unit: m
+trim:
+  TF1:
+    value: 570.0
+    unit: degC
+    doc: Fuel-node-1 trim setpoint; applies to segments 1-5 (5+5 mapping). Inherited from r1; segmented emit adds 273.15 K.
+    source: MSRR.R1MSRRuhx.fuelTempSetPointNode1
+  TF2:
+    value: 580.41
+    unit: degC
+    doc: Fuel-node-2 trim setpoint; applies to segments 6-10 (5+5 mapping). Inherited from r1.
+    source: MSRR.R1MSRRuhx.fuelTempSetPointNode2
+  TG:
+    value: 570.0000028
+    unit: degC
+    doc: Graphite trim setpoint; applies to all ten graphite segments. Inherited from r1.
+    source: MSRR.R1MSRRuhx.graphiteTempSetPoint
+heat_loss_tinf:
+  value: 550.0
+  unit: degC
+  doc: Ambient trench temperature when heaters are off (startup heat-loss cases); inherited unchanged from r1.
+  source: MSRR.R1MSRRuhx.heatLossTinf
+# Segmented-only qualified steady state (physics review 2026-09-27): the
+# per-cell temperatures of SegmentedMSR.Reactors.R1MSRRuhx10SegTrimThermalSS at 1 MW, nominal
+# flow, with temperature feedback referenced to the {reference_temperature}
+# isothermal zero-power critical state (the lumped setpoint-table convention).
+# The segmented rigs bind their FixedStart core temperatures AND their
+# feedback setpoints (the tap averages of these arrays) to this block, so they
+# start at the steady state with zero initial feedback. Regenerate with
+#   python3.12 -m helpers.segmented_trim_levels --write
+# Not read by the lumped MSRR.mo package.
+segmented_steady_state:
+  power:
+    value: 1.0
+    unit: "1"
+    doc: Relative power level of the steady state (segmented runs require powerLevel = 1).
+    source: helpers.segmented_trim_levels
+  reference_temperature:
+    value: 570.0
+    unit: degC
+    doc: Isothermal zero-power critical reference state; the feedback-weighted core temperature equals it at every power (lumped core/init convention).
+    source: core/init/setpoints_1r.csv 1e-5 MW row (570 degC isothermal)
+  T_fuel:
+    value: [553.0829995653, 555.4069870102, 557.7309744551, 560.0549619000, 562.3789493449, 564.7029367898, 567.0269242347, 569.3509116796, 571.6748991245, 573.9988865694]
+    unit: degC
+    doc: Qualified steady-state fuel-salt cell temperatures, per axial segment 1..10 of the single channel.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R1MSRRuhx10SegTrimThermalSS)
+  T_mod:
+    value: [567.3780441721, 569.7020316170, 572.0260190618, 574.3500065067, 576.6739939516, 578.9979813964, 581.3219688413, 583.6459562861, 585.9699437310, 588.2939311758]
+    unit: degC
+    doc: Qualified steady-state moderator (graphite) node temperatures, same layout as T_fuel.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R1MSRRuhx10SegTrimThermalSS)

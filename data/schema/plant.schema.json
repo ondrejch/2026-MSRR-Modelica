@@ -1,0 +1,750 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plant.schema.json",
+  "title": "MSRR plant deck",
+  "description": "Top-level plant identity plus included sections. Authoring files live under data/plants/<id>/ as YAML; this schema documents the merged object. Enforced at load time by helpers.plant_config.validate_plant via helpers.data_validation (errors name the file and dotted path).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "nominal_power",
+    "total_fuel_vol",
+    "kinetics",
+    "decay_heat",
+    "materials",
+    "primary_loop",
+    "secondary_loop",
+    "pumps",
+    "poisons",
+    "cores"
+  ],
+  "properties": {
+    "schema_version": { "const": 1, "description": "Plant schema version." },
+    "kind": { "const": "plant" },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Plant directory name, e.g. msrr."
+    },
+    "display_name": { "type": "string", "minLength": 1 },
+    "nominal_power": {
+      "$ref": "quantity.schema.json",
+      "description": "PowerBlock P [W]. Must carry doc and source."
+    },
+    "total_fuel_vol": {
+      "$ref": "quantity.schema.json",
+      "description": "Total primary salt inventory [m3]. Must carry doc and source."
+    },
+    "kinetics": {
+      "type": "object",
+      "required": [
+        "num_groups",
+        "lambda",
+        "beta",
+        "generation_time",
+        "n_floor",
+        "source_scale",
+        "nu",
+        "source_effectiveness",
+        "lumped_tau_core",
+        "lumped_tau_loop",
+        "feedback"
+      ],
+      "properties": {
+        "num_groups": { "$ref": "quantity.schema.json", "description": "Must be 6 (six delayed-neutron groups)." },
+        "lambda": { "$ref": "quantity.schema.json", "description": "Length must equal num_groups [1/s]." },
+        "beta": { "$ref": "quantity.schema.json", "description": "Length must equal num_groups [1]." },
+        "generation_time": { "$ref": "quantity.schema.json", "description": "Prompt neutron generation time LAMBDA [s]." },
+        "n_floor": { "$ref": "quantity.schema.json", "description": "Numerical neutron-population floor [1]." },
+        "source_scale": { "$ref": "quantity.schema.json", "description": "LEGACY lumped external-source normalizer (inlined 1.58e20 in the lumped mPKE; not a physical population)." },
+        "nu": { "$ref": "quantity.schema.json", "description": "Mean neutrons per fission [1]; SegmentedMSR derives the full-power population N0 = LAMBDA*nu*P/E_f and the poison-worth denominator Sigma_a = nu*Sigma_f from it." },
+        "source_effectiveness": { "$ref": "quantity.schema.json", "description": "External-source effectiveness eta_S [1] (source importance relative to the fundamental mode); normalized source rate = eta_S*S/N0. Default 1.0 is an unsourced unit-importance assumption." },
+        "lumped_tau_core": { "$ref": "quantity.schema.json", "description": "Named convention, not derived from 9R volumes [s]." },
+        "lumped_tau_loop": { "$ref": "quantity.schema.json", "description": "Named convention, not derived from 9R volumes [s]." },
+        "feedback": {
+          "type": "object",
+          "required": ["a_F", "a_G"],
+          "properties": {
+            "a_F": { "$ref": "quantity.schema.json", "description": "Fuel-temperature reactivity coefficient [1/K] (signed)." },
+            "a_G": { "$ref": "quantity.schema.json", "description": "Graphite-temperature reactivity coefficient [1/K] (signed)." }
+          }
+        }
+      },
+      "description": "Shared delayed-neutron data. Every quantity must carry doc and source."
+    },
+    "decay_heat": {
+      "type": "object",
+      "required": ["num_groups", "DHYG", "DHlamG", "nom_frac"],
+      "properties": {
+        "num_groups": { "$ref": "quantity.schema.json", "description": "Must be 3 (three-group ANS-94 fit)." },
+        "DHYG": { "$ref": "quantity.schema.json", "description": "Length must equal num_groups [1/s]." },
+        "DHlamG": { "$ref": "quantity.schema.json", "description": "Length must equal num_groups [1/s]." },
+        "nom_frac": { "$ref": "quantity.schema.json", "description": "Rounded literal on purpose, not derived from DHYG/DHlamG [1]." }
+      },
+      "description": "Three-group ANS-94 decay heat. Every quantity must carry doc and source."
+    },
+    "materials": {
+      "type": "object",
+      "required": ["fuel", "graphite", "coolant", "hx_tube"],
+      "propertyNames": { "enum": ["fuel", "graphite", "coolant", "hx_tube", "channel_pipe", "annular_fluid"] },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["rho", "cp"],
+        "properties": {
+          "rho": { "$ref": "quantity.schema.json" },
+          "cp": { "$ref": "quantity.schema.json" },
+          "k": { "$ref": "quantity.schema.json", "description": "Conductivity; zero is allowed (conduction off) for fuel/graphite/coolant/hx_tube. The optional radial-stack records channel_pipe and annular_fluid additionally REQUIRE k and must be strictly positive in rho/cp/k (TASK-20260914-01 P1)." }
+        }
+      },
+      "description": "Constant material properties. Every quantity must carry doc and source. channel_pipe and annular_fluid are the optional shared records backing the intra-channel radial stack; they are required only by enabled radial cores."
+    },
+    "primary_loop": {
+      "type": "object",
+      "required": ["vdot_fuel", "volumes", "pipes", "dhrs"],
+      "properties": {
+        "vdot_fuel": { "$ref": "quantity.schema.json", "description": "Nominal primary flow at FF = 1 [m3/s]." },
+        "volumes": {
+          "type": "object",
+          "required": ["pipeCoreToDHRS", "DHRS", "pipeDHRStoHX", "HXprimary", "pipeHXtoCore"],
+          "description": "Named volumes in connect order; each a quantity in m3."
+        },
+        "pipes": {
+          "type": "object",
+          "required": ["pipeCoreToDHRS", "pipeDHRStoHX", "pipeHXtoCore"],
+          "description": "Each pipe carries volFracNode, Ac, L, Ar, e, Tinf, T_0 (temperatures in degC)."
+        },
+        "dhrs": {
+          "type": "object",
+          "required": ["tK", "max_remove", "bleed", "engage_time", "Ac", "L", "Ar", "e", "Tinf", "T_0"]
+        }
+      }
+    },
+    "secondary_loop": {
+      "type": "object",
+      "required": ["vdot_coolant", "hx", "uhx", "pipes"],
+      "properties": {
+        "vdot_coolant": { "$ref": "quantity.schema.json" },
+        "hx": {
+          "type": "object",
+          "required": [
+            "vol_P", "vol_T", "vol_S", "hApNom", "hAsNom", "hAExp",
+            "AcShell", "AcTube", "ArShell", "L_shell", "L_tube", "e",
+            "Tinf", "TpIn_0", "TpOut_0", "TsIn_0", "TsOut_0"
+          ]
+        },
+        "uhx": {
+          "type": "object",
+          "required": ["vol", "Tp_0"]
+        },
+        "pipes": {
+          "type": "object",
+          "required": ["HXtoUHX", "UHXtoHX"],
+          "description": "Each pipe carries vol, volFracNode, Ac, L, Ar, e, Tinf, T_0."
+        }
+      },
+      "description": "HX, UHX, secondary pipes. Demand schedules are scenario data."
+    },
+    "pumps": {
+      "type": "object",
+      "required": ["tripK", "freeConvFF", "tripTime", "primary", "secondary"],
+      "properties": {
+        "tripK": { "$ref": "quantity.schema.json" },
+        "freeConvFF": { "$ref": "quantity.schema.json" },
+        "tripTime": { "$ref": "quantity.schema.json" },
+        "primary": { "$ref": "#/$defs/pumpBranch" },
+        "secondary": { "$ref": "#/$defs/pumpBranch" }
+      },
+      "description": "Hardware defaults. Ramp schedules belong in scenario YAML."
+    },
+    "poisons": {
+      "type": "object",
+      "description": "Homogeneous Te-I-Xe / Pm-Sm poison data. No topology-sized arrays. Every physical quantity must carry doc and source.",
+      "required": [
+        "dataset_id",
+        "yield_convention",
+        "flux_averaging",
+        "inventory_unit",
+        "maturity",
+        "Te135_lambda",
+        "I135_lambda",
+        "Xe135_lambda",
+        "Pm149_lambda",
+        "Te135_yield",
+        "I135_yield",
+        "Xe135_yield",
+        "Pm149_yield",
+        "Sm149_yield",
+        "sigma_a_Xe",
+        "sigma_a_Sm",
+        "sigma_a_fuel",
+        "phi0",
+        "energy_per_fission",
+        "k_rem_Xe",
+        "k_rem_Sm"
+      ],
+      "properties": {
+        "dataset_id": { "type": "string", "minLength": 1 },
+        "yield_convention": {
+          "type": "string",
+          "enum": ["independent", "chain_entry"],
+          "description": "independent = every yield is an independent (direct) yield; chain_entry = members with a modeled parent carry independent yields, and a chain's first modeled member may carry the cumulative yield of its unmodeled precursors (per isotope in yield_basis)."
+        },
+        "yield_basis": {
+          "type": "object",
+          "description": "Per-isotope yield basis; required when yield_convention is chain_entry. cumulative_chain_entry is allowed only on a chain's first modeled member (Te135, Pm149).",
+          "required": ["Te135", "I135", "Xe135", "Pm149", "Sm149"],
+          "additionalProperties": false,
+          "properties": {
+            "Te135": { "type": "string", "enum": ["independent", "cumulative_chain_entry"] },
+            "I135": { "type": "string", "enum": ["independent"] },
+            "Xe135": { "type": "string", "enum": ["independent"] },
+            "Pm149": { "type": "string", "enum": ["independent", "cumulative_chain_entry"] },
+            "Sm149": { "type": "string", "enum": ["independent"] }
+          }
+        },
+        "flux_averaging": { "type": "string", "enum": ["core_volume", "total_fuel"] },
+        "inventory_unit": { "type": "string", "enum": ["atoms"] },
+        "maturity": {
+          "type": "string",
+          "enum": ["reference", "reduced_order_pending_review"],
+          "description": "Machine-readable poison-data maturity label (owner-settable enum; validated at load time by helpers.plant_config): reference = data that passed the owner's scientific review of pedigree, spectrum, and the reduced-order worth coefficient; reduced_order_pending_review = reduced-order first-cut data, not approved for production or publication use."
+        }
+      }
+    },
+    "cores": {
+      "type": "object",
+      "required": ["r1", "r9"],
+      "properties": {
+        "r1": { "$ref": "#/$defs/core1R" },
+        "r9": { "$ref": "#/$defs/core9R" }
+      },
+      "description": "Discretization fork. Keys r1 and r9 map to CLI --core_model 1r/9r; the optional r1_10seg and r5x5_z10 sections map to --core_model 1r10seg / r5x5_z10. Every core may carry the optional intra_channel_radial block ($defs/intraChannelRadial; TASK-20260914-01 P1)."
+    },
+    "outer_fuel_annulus": {
+      "$ref": "#/$defs/outerFuelAnnulus",
+      "description": "Optional plant-level outer-core fuel annulus / reactor-vessel / fixed-cavity dataset (TASK-20260917-01 P7; plan §7), authored in shared/core_vessel.yaml and included under this pinned key. Absent block = disabled defaults (nothing is emitted). Shipped state is enabled: false with production_enablement.status: blocked (the P1 decision record)."
+    },
+    "harness": {
+      "type": "object",
+      "description": "QA-collapse parity literals. Documentation-only; not emitted into product PlantData."
+    }
+  },
+  "$defs": {
+    "outerAnnulusUnsupported": {
+      "description": "The valueless disabled-deck placeholder (the P1 'status: unsupported' convention): a mapping with no 'value' key, carrying 'status: unsupported' plus the declared-unit documentation. Permitted placeholder on a disabled deck; helpers.plant_config refuses it fail-closed on any enabled deck (an enabled configuration must carry the sourced quantity).",
+      "type": "object",
+      "required": ["status"],
+      "properties": { "status": { "const": "unsupported" } }
+    },
+    "outerAnnulusQuantity": {
+      "description": "A sourced physical quantity of the outer fuel annulus: the {value, unit} quantity envelope (doc/source provenance per quantity.schema.json), OR - on a DISABLED deck only - the valueless 'status: unsupported' placeholder. Bare numbers are NOT part of this contract: the loader reads every such leaf as a quantity mapping and refuses a non-quantity shape ('must be a quantity {value, unit}').",
+      "anyOf": [
+        { "$ref": "quantity.schema.json" },
+        { "$ref": "#/$defs/outerAnnulusUnsupported" }
+      ]
+    },
+    "outerFuelAnnulus": {
+      "type": "object",
+      "description": "Optional outer-core fuel annulus / reactor-vessel / fixed-cavity dataset (TASK-20260917-01 P7; plan §7.1/§7.2). One plant-level block in shared/core_vessel.yaml, a sibling dataset of the intra-channel radial stack with a separate identity: separate key, separate generated packages (SegmentedMSR_PlantData.OuterFuelAnnulus*), separate fingerprints, no shared names/keys/commands/fingerprints with the radial stack or its dedicated loop. Validation (helpers.plant_config._validate_outer_fuel_annulus) is fail-closed, every refusal naming the configuration path and the offending value. Shipped deck: enabled false, production_enablement.status blocked (P1 decision record; valueless status: unsupported nodes are the permitted placeholders HERE and are refused on any enabled deck). Structural codes (plan §6.1): topology.series_location_code in {1 disabled, 2 core-then-annulus, 3 annulus-then-core} (disabled decks record 1; enabled decks record 2 or 3), topology.flow_direction_code in {1 = segment 1->nSeg, 2 = nSeg->1}. Interfaces (plan §7.1): interfaces.graphite_to_fuel.mode in {authored_matrix (code 0 - the authored G_modAnn matrix IS the conductance, the P1 mapping policy), film (code 1 - requires h > 0)}; interfaces.fuel_to_vessel.mode in {perfect (code 0), film (code 1)}. Cavity: cavity.enabled (default false = adiabatic vessel exterior), cavity.mode in {ua (code 1), radiation (code 2), ua_and_radiation (code 3)} with mode-consistent per-segment vessel_UA/vessel_area/vessel_effective_emissivity arrays (zero/absent parameters for disabled modes where ambiguity would otherwise result), cavity.temperature authored in degC (the emitter converts to kelvin; positive after conversion), and cavity.loop_surfaces naming known external primary-loop surfaces only (SegmentedMSR.Core.CavityLoopSurface: pipeCoreToDHRS, dhrs, pipeDHRStoHX, pipeHXtoCore, heatExchanger; no duplicates, no secondary surfaces). Inventory (plan §4.10): inventory_policy exactly one of {split_existing, revise_total}; split_existing requires inventory.legacy_term = the target core's cell_vol sum, inventory.total_retained = the plant total_fuel_vol, and the annulus volume carved out of the legacy term (never added on top - no double counting). First production target: first_production_target names the core the dataset is authored for and keys the generated package (OuterFuelAnnulus<CoreTag>); an ENABLED r9 target refuses fail-closed (plan §3.1: no physical zone-to-outer-boundary mapping; card A12); r1/r1_10seg/r5x5_z10 are supported. Geometry (plan §7.1): geometry.graphite_outer_radius < geometry.vessel_inner_radius < geometry.vessel_outer_radius (all > 0, m), geometry.physical_length one entry per target-core axial segment (m, > 0, matched against the core's channel_geom LF chain under strict_physical), geometry.annulus_volume authored only under effective_thermal. Provenance: every sourced quantity on an enabled deck carries doc + source.",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Feature flag; the executable structural switch is topology.series_location_code (code 1 = disabled)." },
+        "dataset_id": { "type": "string", "minLength": 1, "description": "Dataset identity; required (non-empty) when enabled. Mirrored into the disabled generated record." },
+        "maturity": { "type": "string", "enum": ["reference_regression", "discretization_study", "exploratory_geometry"], "description": "Dataset maturity label (CORE_MATURITY_VALUES); required when enabled." },
+        "geometry_policy": { "type": "string", "enum": ["strict_physical", "effective_thermal"], "description": "Plan §3.4 (same two meanings as the radial stack, separate field/identity). Default strict_physical." },
+        "volume_tolerance": { "type": "number", "exclusiveMinimum": 0, "description": "Relative tolerance of the strict-physical closure checks [1]; enabled-path only, refused under effective_thermal." },
+        "production_enablement": {
+          "type": "object",
+          "description": "Governance record (P1 decision record). status: blocked | enabled; an enabled: true deck cannot carry status: blocked.",
+          "properties": {
+            "status": { "type": "string", "enum": ["blocked", "enabled"] },
+            "reasons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "inventory_policy": { "type": "string", "enum": ["split_existing", "revise_total"], "description": "Plan §4.10; exactly one recorded policy. Required when enabled." },
+        "first_production_target": { "type": "string", "minLength": 1, "description": "Core the dataset is authored for; keys the generated OuterFuelAnnulus<CoreTag> package. Required." },
+        "geometry": {
+          "type": "object",
+          "description": "Enabled-path only (refused on a disabled deck). Radii strictly ordered; physical_length one entry per target-core axial segment; annulus_volume authored only under effective_thermal (the cylindrical law is authoritative under strict_physical).",
+          "properties": {
+            "graphite_outer_radius": { "type": "number", "exclusiveMinimum": 0, "description": "r_g [m], the annulus inner radius." },
+            "vessel_inner_radius": { "type": "number", "exclusiveMinimum": 0, "description": "r_vi [m], the annulus outer radius." },
+            "vessel_outer_radius": { "type": "number", "exclusiveMinimum": 0, "description": "r_vo [m]." },
+            "physical_length": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "description": "Per-segment annulus/vessel physical length L_j [m], one entry per core axial segment (never L/nSeg)." },
+            "annulus_volume": { "type": "array", "items": { "type": "number", "minimum": 0 }, "description": "Authored per-segment annulus volume [m3]. P0: under effective_thermal this IS the executable cell storage volume (required positive on an enabled deck; the thermal cells' mass/heat capacity consume it); refused under strict_physical (the cylindrical law is authoritative there). Geometry (radii/lengths) still defines the heat-transfer areas/resistance; a storage-vs-geometry mismatch is disclosed, never silent." }
+          }
+        },
+        "moderator_coupling": {
+          "type": "object",
+          "description": "Authored G_modAnn boundary conductances (plan §4.2: never inferred from the ChannelMap neighbor table). mapping_policy: authored_matrix is the only supported value.",
+          "properties": {
+            "mapping_policy": { "type": "string", "enum": ["authored_matrix"] },
+            "conductance": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "G_modAnn[nChan][nSeg] [W/K], entries >= 0, at least one > 0 on an enabled deck with the authored_matrix interface mode." }
+          }
+        },
+        "interfaces": {
+          "type": "object",
+          "description": "Radial interface parameterizations; required when enabled. graphite_to_fuel.mode: authored_matrix (code 0; requires the G_modAnn matrix, refuses a film coefficient) or film (code 1; requires h > 0, refuses a sourced matrix). fuel_to_vessel.mode: perfect (code 0; refuses h) or film (code 1; requires h > 0).",
+          "properties": {
+            "graphite_to_fuel": { "$ref": "#/$defs/outerAnnulusInterface" },
+            "fuel_to_vessel": { "$ref": "#/$defs/outerAnnulusInterface" }
+          }
+        },
+        "vessel_material": {
+          "type": "object",
+          "description": "Reactor-vessel steel (sourced identity, e.g. SS316H, plus sourced rho/cp/k on an enabled deck).",
+          "properties": {
+            "identity": { "type": "string", "minLength": 1 },
+            "rho": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[kg/m3]." },
+            "cp": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[J/(kg.K)]." },
+            "k": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[W/(m.K)]." }
+          }
+        },
+        "fuel_conductivity": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "REV-21c79f7-01 (TASK-20260918-01): annulus radial conductivity of the PRIMARY FUEL [W/(m.K)] - a separate datum from the generated Materials.kFuel placeholder (0 = axial salt conduction off, PLAN23-08). Required strictly positive (sourced) on an enabled deck: the annulus cells' radial resistance consumes it, so missing/zero/placeholder values refuse fail-closed naming the path. The shipped disabled deck records the valueless status: unsupported placeholder; sourced values on a disabled deck are validated but inert (the disabled record emits kFuel = 0, never consumed)." },
+        "cavity": {
+          "type": "object",
+          "description": "Ideal fixed-temperature cavity boundary (plan §4.5/§4.6, §5.7, §9.2). cavity.enabled=false = adiabatic vessel exterior (sourced cavity data refused as phantom data).",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Default false (adiabatic). Requires the outer_fuel_annulus enabled." },
+            "temperature": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "Fixed cavity setpoint [degC, the plant convention; the emitter converts to kelvin and it must be positive after conversion]. Required when cavity.enabled." },
+            "mode": { "type": "string", "enum": ["ua", "radiation", "ua_and_radiation"], "description": "Vessel-to-cavity transfer mode (codes 1/2/3); required when cavity.enabled." },
+            "vessel_UA": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "Per-segment effective linear conductance [W/K]; required for modes ua/ua_and_radiation, refused (ambiguity) for mode radiation." },
+            "vessel_area": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "Per-segment external vessel area [m2]; required for radiation modes, refused for mode ua." },
+            "vessel_effective_emissivity": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "Per-segment effective emissivity [1] within [0, 1]; required (with at least one positive entry) for radiation modes." },
+            "loop_surfaces": { "type": "array", "items": { "type": "string", "enum": ["pipeCoreToDHRS", "dhrs", "pipeDHRStoHX", "pipeHXtoCore", "heatExchanger"] }, "description": "Cavity-exposed external primary-loop surfaces (plan §9.2); no duplicates; secondary surfaces are not in the dictionary." }
+          }
+        },
+        "precursor_importance": {
+          "type": "object",
+          "description": "Annulus delayed-neutron importance (plan §4.8). weights absent = the documented zero-credit policy; present weights are a per-segment nonnegative array [1].",
+          "properties": {
+            "policy": { "type": "string", "minLength": 1 },
+            "weights": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "w[a,j] [1], one entry per segment, each >= 0." }
+          }
+        },
+        "initialization": {
+          "type": "object",
+          "description": "Declared initial annulus/vessel temperatures [degC, the plant convention; the emitter converts to kelvin]. Scalars (the generated record binds one per medium). Required when enabled.",
+          "properties": {
+            "annulus_temperature": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[degC]." },
+            "vessel_temperature": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[degC]." }
+          }
+        },
+        "fission": {
+          "type": "object",
+          "description": "Annulus fission (plan §5.1/§5.2; TASK-20260918-01 P1): the conservative SPLIT of the existing total fission source, never an additive source. Absent block = fission disabled with zero fraction vectors and the first-release policies. enabled=true requires the outer_fuel_annulus enabled AND explicitly authored distributions + policies with complete provenance; enabled=false requires every fraction entry 0. Validation (fail-closed, no silent renormalization): finite, nonnegative entries; length = the target core's n_seg; the STRICT retained-share rule 1-fsum(f) >= 1e-9 on BOTH vectors (hence 0 <= sum_j f_a,j < 1; the active core keeps F_c = 1 - F_a > 0 with at least a 1e-9 share); elementwise f^S = f^Q under local_same_fraction within OUTER_ANNULUS_FISSION_FRACTION_TOLERANCE (1e-9); unsupported policy names refuse. source_fraction and heat_deposition_fraction stay DISTINCT names (fission-event location and energy deposition are not generally the same physical quantity; the equality under local_same_fraction is a validation rule, not a schema collapse).",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Default false. Requires the outer_fuel_annulus enabled; false requires every fraction entry 0." },
+            "coupling_policy": { "type": "string", "enum": ["local_same_fraction"], "description": "Plan §5.1; local_same_fraction is the ONLY first-release coupling policy (elementwise f^S = f^Q enforced); a second policy is a future owner decision. Required explicitly on a fission-enabled deck." },
+            "source_fraction": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "f^S_a[j] [1]: fraction of whole-reactor fission EVENTS occurring in annulus segment j; one entry per target-core axial segment; strict retained-share 1-fsum(f) >= 1e-9 (hence 0 <= sum < 1); provenance required when sourced (doc+source on any fission-enabled deck)." },
+            "heat_deposition_fraction": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "f^Q_a[j] [1]: fraction of whole-reactor prompt fission POWER deposited in annulus segment j (the P2 splitter delivers f^Q_a[j]*P_total to annulus cell j and (1-F_a^Q)*P_total to the core); same rules as source_fraction; elementwise equal to it under local_same_fraction." },
+            "annulus_temperature_feedback_policy": { "type": "string", "enum": ["zero_credit"], "description": "Plan §5.6; zero_credit is the ONLY first-release policy (explicit, fingerprinted, manifest-visible no-credit); weighted policies are a future owner decision. Required explicitly on a fission-enabled deck." },
+            "poison_flux_exposure_policy": { "type": "string", "enum": ["zero_credit"], "description": "Plan §5.5; zero_credit is the ONLY first-release policy (whole-reactor poison production, no annulus absorption exposure credit); weighted policies are a future owner decision. Required explicitly on a fission-enabled deck." },
+            "annulus_temperature_feedback": {
+              "type": "object",
+              "description": "Weighted temperature-feedback placeholders (plan §5.6): UNSUPPORTED in the first release - valueless 'status: unsupported' nodes only; sourced values refuse fail-closed under the zero_credit policy.",
+              "properties": {
+                "weights": { "$ref": "#/$defs/outerAnnulusUnsupported", "description": "w^T_a[j] [1] placeholders; declared unit when sourced: 1. Sourced values refuse in the first release." },
+                "coefficient_alpha": { "$ref": "#/$defs/outerAnnulusUnsupported", "description": "alpha_f,a placeholder; declared unit when sourced: 1/K. Sourced values refuse in the first release." }
+              }
+            },
+            "poison_flux_exposure": {
+              "type": "object",
+              "description": "Weighted poison-exposure placeholders (plan §5.5): UNSUPPORTED in the first release - valueless 'status: unsupported' nodes only; sourced values refuse fail-closed under the zero_credit policy.",
+              "properties": {
+                "weights": { "$ref": "#/$defs/outerAnnulusUnsupported", "description": "w^phi_a[j] [1] placeholders; declared unit when sourced: 1. Sourced values refuse in the first release." }
+              }
+            }
+          }
+        },
+        "inventory": {
+          "type": "object",
+          "description": "The P1 inventory-decision record (plan §4.10). split_existing: legacy_term = the target core's cell_vol sum (the in-vessel term the annulus is carved from), subtraction.expression records the carve, total_retained = the plant total_fuel_vol (preserved); active_core_cell_volume (P0) is the EXECUTABLE carved [n_chan][n_seg] matrix the embedded core and precursor network consume - positive entries, whole-volume closure sum(V_active) + sum(V_annulus) + V_loop = total_retained within 1e-6, and (one-channel target) per-elevation closure V_active,j + V_annulus,j = V_legacy,j with positive remainders; revise_total requires inventory.total_revised and the sourced geometry for the closure check.",
+          "properties": {
+            "legacy_term": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[m3]; must equal the target core's cell_vol sum within 1e-9." },
+            "total_retained": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[m3]; must equal plant total_fuel_vol within 1e-9 and legacy_term + external-loop volume within 1e-6." },
+            "total_revised": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "[m3]; must equal cell_vol + annulus + external-loop volume within 1e-6 (revise_total only)." },
+            "active_core_cell_volume": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "P0: the executable carved active-core channel fuel volume matrix [n_chan][n_seg] [m3] consumed by the embedded SegmentedCore / PrecursorNetwork ChannelMap (required on an enabled split_existing deck; whole-volume and one-channel per-elevation closure enforced)." }
+          }
+        },
+        "axial_grid_1r10seg": {
+          "type": "object",
+          "description": "Decision-record elevations section for the r1_10seg target (P1). When authored for the first production target, n_seg must match the core's n_seg and lf_per_segment x n_seg must match the core's channel_geom LF sum within 1e-9."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": {
+            "description": "Enabled path: every quantity leaf must carry the sourced {value, unit} envelope - the valueless 'status: unsupported' placeholder is refused fail-closed (helpers.plant_config: an enabled configuration must carry sourced data before it reaches Modelica), and a film coefficient 'h' must not accompany the enabled-deck interface modes (authored_matrix/perfect; the film modes themselves are refused on an enabled deck).",
+            "properties": {
+              "inventory": {
+                "properties": {
+                  "legacy_term": { "$ref": "quantity.schema.json" },
+                  "total_retained": { "$ref": "quantity.schema.json" },
+                  "total_revised": { "$ref": "quantity.schema.json" },
+                  "active_core_cell_volume": { "$ref": "quantity.schema.json" }
+                }
+              },
+              "moderator_coupling": {
+                "properties": {
+                  "conductance": { "$ref": "quantity.schema.json" }
+                }
+              },
+              "interfaces": {
+                "properties": {
+                  "graphite_to_fuel": { "properties": { "h": false } },
+                  "fuel_to_vessel": { "properties": { "h": false } }
+                }
+              },
+              "vessel_material": {
+                "properties": {
+                  "rho": { "$ref": "quantity.schema.json" },
+                  "cp": { "$ref": "quantity.schema.json" },
+                  "k": { "$ref": "quantity.schema.json" }
+                }
+              },
+              "fuel_conductivity": { "$ref": "quantity.schema.json" },
+              "cavity": {
+                "properties": {
+                  "temperature": { "$ref": "quantity.schema.json" },
+                  "vessel_UA": { "$ref": "quantity.schema.json" },
+                  "vessel_area": { "$ref": "quantity.schema.json" },
+                  "vessel_effective_emissivity": { "$ref": "quantity.schema.json" }
+                }
+              },
+              "precursor_importance": {
+                "properties": {
+                  "weights": { "$ref": "quantity.schema.json" }
+                }
+              },
+              "initialization": {
+                "properties": {
+                  "annulus_temperature": { "$ref": "quantity.schema.json" },
+                  "vessel_temperature": { "$ref": "quantity.schema.json" }
+                }
+              },
+              "fission": {
+                "properties": {
+                  "source_fraction": { "$ref": "quantity.schema.json" },
+                  "heat_deposition_fraction": { "$ref": "quantity.schema.json" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "outerAnnulusInterface": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "type": "string", "description": "graphite_to_fuel: authored_matrix | film; fuel_to_vessel: perfect | film. P0: the film modes are UNSUPPORTED on an enabled deck (no film interface is implemented in the Modelica assembly; film is a documented future extension) - enabled decks declare authored_matrix / perfect; the shipped disabled deck keeps its film placeholder." },
+        "h": { "$ref": "#/$defs/outerAnnulusQuantity", "description": "Film coefficient [W/(m2.K)], > 0; required exactly for the film modes and refused with authored_matrix/perfect." }
+      }
+    },
+    "pumpBranch": {
+      "type": "object",
+      "required": ["numRampUp", "rampUpK", "rampUpTo", "rampUpTime"],
+      "properties": {
+        "numRampUp": { "$ref": "quantity.schema.json", "description": "Integer >= 1; rampUpK/rampUpTo/rampUpTime lengths must equal it." }
+      }
+    },
+    "intraChannelRadial":     {
+      "type": "object",
+      "description": "Optional per-core intra-channel radial stack configuration (TASK-20260914-01 P1; plan §2.2, §6). Absent block = disabled default. Valid combinations only: disabled (mode N/A, no heat exchanger); enabled+static (no heat exchanger, no loop data); enabled+circulating; enabled+circulating+heat exchanger. annular_loop.heat_exchanger.enabled=true is refused unless the stack is enabled AND annular_fluid.mode=circulating. Every physics quantity is a quantity envelope with doc+source (plan §13.17). Mode/enum fields: annular_fluid.mode in {static, circulating}; annular_fluid.flow_direction in {bottom_to_top, top_to_bottom}; geometry_policy in {strict_physical, effective_thermal}; channel_meaning in {literal_tube, aggregate_bundle}; interfaces.<name>.mode in {perfect, film}. channel_meaning='literal_tube' holds exactly when channel_multiplicity = 1, and 'aggregate_bundle' requires channel_multiplicity >= 2. Annular-loop channel_flow_fractions has one entry per annular loop channel (n_chan for r1/r1_10seg/r5x5_z10; n_zones for the four-zone segmented 9R core), each >= 0, summing to 1 within 1e-6 (SegmentedMSR.Core.fracTol).",
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Structural decision 1: does the intra-channel radial stack exist? Default false; the disabled direct fuel-to-moderator path stays structurally and numerically unchanged (plan §2.1)."
+        },
+        "maturity": {
+          "type": "string",
+          "enum": [
+            "reference_regression",
+            "discretization_study",
+            "exploratory_geometry"
+          ],
+          "description": "Radial dataset maturity (CORE_MATURITY_VALUES); required (non-empty) when enabled."
+        },
+        "dataset_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Radial dataset identity; required when enabled."
+        },
+        "geometry_policy": {
+          "type": "string",
+          "enum": [
+            "strict_physical",
+            "effective_thermal"
+          ],
+          "description": "Plan §2.4; review rev019 Phase 2 (TASK-20260915-01 P2). strict_physical (default) requires: (1) fuel-volume closure per stack cell, N_c*pi*fuel_radius^2*physical_length[j] = declared salt inventory within volume_tolerance; (2) the stated per-segment physical length to match the core's authored fuel length (channel_geom LF chain) - the stack length is never map.dz unless proven equal for the core; (3) lattice packing, 2*annulus_outer_radius <= pitch and pairwise annulus non-overlap; (4) material-volume closure, pi*annulus_outer_radius^2 <= lattice cell area. effective_thermal permits a reported discrepancy. volume_tolerance applies only under strict_physical."
+        },
+        "channel_meaning": {
+          "type": "string",
+          "enum": [
+            "literal_tube",
+            "aggregate_bundle"
+          ],
+          "description": "What ONE modeled coarse thermal channel represents (review rev019 Phase 2; TASK-20260915-01 P2): literal_tube (default) = exactly one physical fuel tube per modeled coarse channel (channel_multiplicity = 1); aggregate_bundle = a bundle of channel_multiplicity identical parallel physical tubes per modeled coarse channel."
+        },
+        "channel_multiplicity": {
+          "$ref": "quantity.schema.json",
+          "description": "Physical-channel multiplicity N_c [1]: identical parallel physical fuel tubes per modeled coarse thermal channel; integer >= 1, default 1. Scales the radial chain (R_equiv = R_single/N_c) and the per-cell pipe/annular volumes and capacities (C_equiv = N_c*C_single) through the bundle-equivalent length N_c*L_j; the annular-loop mass flow, plenum and connecting-pipe volumes, and the heat-exchanger conductance and loop-side volume are authored as WHOLE-BUNDLE totals and are NOT scaled. Direct-deposition fractions are shares of fission power and are not scaled."
+        },
+        "volume_tolerance": {
+          "$ref": "quantity.schema.json",
+          "description": "Relative tolerance of the strict_physical geometry-closure checks [1]; default 1e-6."
+        },
+        "geometry": {
+          "type": "object",
+          "description": "Shared concentric radii [m], strictly ordered 0 < fuel_radius < pipe_outer_radius < annulus_outer_radius, plus the explicit per-segment physical radial length [m] (one entry per core axial segment: n_seg for r1/r1_10seg/r5x5_z10; the summed n_seg_zone for the segmented 9R core). Present only when enabled.",
+          "required": [
+            "fuel_radius",
+            "pipe_outer_radius",
+            "annulus_outer_radius",
+            "physical_length"
+          ],
+          "properties": {
+            "physical_length": {
+              "$ref": "quantity.schema.json",
+              "description": "Per-segment physical radial (fuel) length L_j [m]; all entries > 0; required when enabled. Distinct from the channel_map axial pitch dz (moderator center spacing) unless proven equal for that core (1r10seg: LF = 0.1575 m vs dz = 0.14 m)."
+            }
+          }
+        },
+        "annular_fluid": {
+          "type": "object",
+          "description": "Structural decision 2. mode default static; circulating requires enabled=true.",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "static",
+                "circulating"
+              ]
+            },
+            "flow_direction": {
+              "type": "string",
+              "enum": [
+                "bottom_to_top",
+                "top_to_bottom"
+              ],
+              "description": "Shared structural direction for all annular loop channels; default bottom_to_top."
+            }
+          }
+        },
+        "annular_loop": {
+          "type": "object",
+          "description": "Annular-loop data; present only when enabled AND mode=circulating (plan §10.12: static mode carries no loop data). channel_flow_fractions length must equal the annular loop channel count; plenum volumes strictly positive; connecting_pipe_volume >= 0 (0 = M_pipes=0 explicit, plan §2.4). All loop volumes and the heat-exchanger data are WHOLE-BUNDLE totals (the loop serves the bundle as a whole; not scaled by channel_multiplicity).",
+          "required": [
+            "nominal_mass_flow",
+            "max_flow_command",
+            "channel_flow_fractions",
+            "supply_plenum_volume",
+            "return_plenum_volume",
+            "connecting_pipe_volume"
+          ],
+          "properties": {
+            "nominal_mass_flow": {
+              "$ref": "quantity.schema.json",
+              "description": "Prescribed total annular-loop mass flow for the WHOLE bundle [kg/s], > 0 (per-tube flow is nominal_mass_flow/N_c implicitly; residence times stay correct)."
+            },
+            "max_flow_command": {
+              "$ref": "quantity.schema.json",
+              "description": "Maximum allowed flow command u [1], >= 1 so u=1 nominal stays inside the bound."
+            },
+            "channel_flow_fractions": {
+              "$ref": "quantity.schema.json",
+              "description": "One fraction per annular loop channel [1]; each >= 0; sum = 1 within 1e-6."
+            },
+            "supply_plenum_volume": {
+              "$ref": "quantity.schema.json",
+              "description": "Explicit declared supply plenum volume [m3], > 0 (whole-bundle total)."
+            },
+            "return_plenum_volume": {
+              "$ref": "quantity.schema.json",
+              "description": "Explicit declared return plenum volume [m3], > 0 (whole-bundle total)."
+            },
+            "connecting_pipe_volume": {
+              "$ref": "quantity.schema.json",
+              "description": "Declared connecting-pipe loop inventory [m3], >= 0 (0 = not dynamically modeled, documented omission)."
+            },
+            "heat_exchanger": {
+              "type": "object",
+              "description": "Structural decision 3: the dedicated annular-loop heat exchanger. enabled=true requires the stack enabled AND circulating (plan §2.2); then model/ua/loop_side_volume/sink_temperature/initial_temperature are all required. ua and loop_side_volume are WHOLE-BUNDLE totals (not scaled by channel_multiplicity).",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "model": {
+                  "type": "string",
+                  "enum": [
+                    "finite_conductance_prescribed_sink",
+                    "none"
+                  ],
+                  "description": "Heat-exchanger model identity, not a selector: finite_conductance_prescribed_sink while enabled, none while disabled (absent canonicalizes to none); any other value is refused by the loader."
+                },
+                "ua": {
+                  "$ref": "quantity.schema.json",
+                  "description": "Finite conductance UA [W/K], > 0 (whole-bundle total)."
+                },
+                "loop_side_volume": {
+                  "$ref": "quantity.schema.json",
+                  "description": "Loop-side fluid volume [m3], > 0 (whole-bundle total)."
+                },
+                "sink_temperature": {
+                  "$ref": "quantity.schema.json",
+                  "description": "Declared sink temperature [degC]."
+                },
+                "initial_temperature": {
+                  "$ref": "quantity.schema.json",
+                  "description": "Loop-side initialization temperature [degC]."
+                }
+              }
+            }
+          }
+        },
+        "interfaces": {
+          "type": "object",
+          "description": "Radial interface parameters; present only when enabled. Perfect contact is an explicit mode selection, never an arbitrarily large coefficient (plan §6.5).",
+          "required": [
+            "fuel_pipe",
+            "pipe_fluid",
+            "fluid_moderator"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "fuel_pipe": {
+              "$ref": "#/$defs/radialInterface"
+            },
+            "pipe_fluid": {
+              "$ref": "#/$defs/radialInterface"
+            },
+            "fluid_moderator": {
+              "$ref": "#/$defs/radialInterface"
+            }
+          }
+        },
+        "heat_deposition": {
+          "type": "object",
+          "description": "Optional direct-deposition shares into the radial materials (plan §6.7, §14). Defaults pipe_fraction = annular_fluid_fraction = 0; the fuel/moderator shares stay the established per-core q_fiss/q_mod split; all shares must sum to 1 within 1e-9.",
+          "properties": {
+            "pipe_fraction": {
+              "$ref": "quantity.schema.json",
+              "description": "Direct share to the pipe wall [1], within [0, 1]; default 0."
+            },
+            "annular_fluid_fraction": {
+              "$ref": "quantity.schema.json",
+              "description": "Direct share to the annular fluid [1], within [0, 1]; default 0."
+            }
+          }
+        }
+      }
+    },
+    "radialInterface": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["perfect", "film"] },
+        "h": { "$ref": "quantity.schema.json", "description": "Film coefficient [W/(m2.K)], > 0; required exactly when mode = film and refused with mode = perfect." }
+      }
+    },
+    "core1R": {
+      "type": "object",
+      "required": [
+        "n_chan", "n_seg", "cell_vol", "vol_graphite", "hAnom", "q_fiss",
+        "q_mod", "kG", "kHT", "flow_frac", "IF", "IG", "hAExp",
+        "channel_geom", "channel_map", "trim", "heat_loss_tinf"
+      ],
+      "properties": {
+        "n_chan": { "$ref": "quantity.schema.json", "description": "Must be 1; flow_frac/channel_map.chanR/channel_map.xy lengths must equal it." },
+        "n_seg": { "$ref": "quantity.schema.json", "description": "Must be 2; cell_vol/q_fiss/q_mod/kHT/IF/channel_geom.LF/channel_geom.ArF lengths must equal it." },
+        "channel_map": {
+          "type": "object",
+          "description": "Coarse lattice metadata for the later SegmentedMSR bind (pitch_type, pitch, dz, chanR, xy). This schema twin documents only the lattice-geometry declaration (TASK-20260916-01 P4); the remaining lattice fields are loader-validated and are placeholder capacity values that do not control heat capacity (cell_vol and vol_graphite set the inventories).",
+          "properties": {
+            "lattice_geometry": {
+              "type": "string",
+              "enum": ["placeholder", "physical"],
+              "description": "Lattice-geometry provenance declaration (review rev020 Phase 4 option 2; TASK-20260916-01 P4): what the coarse channel_map lattice metadata (pitch and the derived cell area) represents. 'physical' = the deck authors a real tube lattice whose geometry is physical closure data; geometry_policy 'strict_physical' requires it. 'placeholder' (the default; an ABSENT declaration canonicalizes to it) = the pitch/cell area are placeholder capacity values, so 'strict_physical' is refused for them and 'effective_thermal' is the honest policy. Validated at load time by helpers.plant_config (RADIAL_LATTICE_GEOMETRY_VALUES / RADIAL_LATTICE_GEOMETRY_DEFAULT)."
+            }
+          }
+        },
+        "trim": {
+          "type": "object",
+          "required": ["TF1", "TF2", "TG"],
+          "description": "Trim setpoints in degC."
+        },
+        "intra_channel_radial": { "$ref": "#/$defs/intraChannelRadial" },
+        "maturity": {
+          "type": "string",
+          "enum": ["reference_regression", "discretization_study", "exploratory_geometry"],
+          "description": "Machine-readable implementation-maturity label (owner-settable enum; validated at load time by helpers.plant_config): reference_regression = legacy computational reference for regression and parity checks (not a physically validated dataset); discretization_study = uniform first-cut partition, no independent spatial-profile validation; exploratory_geometry = placeholder lattice, surrogate graphite grade."
+        },
+        "physical_data_maturity": {
+          "type": "string",
+          "enum": ["reviewed_design_basis", "legacy_inherited", "pending_source_review", "synthetic"],
+          "description": "Machine-readable physical-data maturity label (owner-settable enum; validated at load time by helpers.plant_config): reviewed_design_basis = traced to a reviewed external design basis; legacy_inherited = inherited from the former Modelica implementation, not yet source-reviewed; pending_source_review = source named, review open; synthetic = placeholder values without physical provenance."
+        }
+      }
+    },
+    "core9R": {
+      "type": "object",
+      "required": [
+        "n_regions", "n_zones", "zone_start", "zone_end", "n_seg_zone",
+        "vol_F1", "vol_F2", "vol_G", "hA", "kFN1", "kFN2", "kHT1", "kHT2",
+        "flow_frac_zones", "IF1", "IF2", "IG", "LF1", "LF2", "Ac_zones",
+        "ArF1", "ArF2", "e", "trim", "mixing_pot", "region_trip_time",
+        "region_coast_down_K", "graphite_split_policy"
+      ],
+      "properties": {
+        "n_regions": { "$ref": "quantity.schema.json", "description": "Must be 9; vol_F1..ArF2 and trim.*_regions lengths must equal it." },
+        "n_zones": { "$ref": "quantity.schema.json", "description": "Must be 4; flow_frac_zones/Ac_zones/region_trip_time/zone_start/zone_end/n_seg_zone lengths must equal it." },
+        "zone_start": { "$ref": "quantity.schema.json", "description": "1-based, strictly increasing, contiguous (start[i] = end[i-1]+1), first = 1." },
+        "zone_end": { "$ref": "quantity.schema.json", "description": "1-based, strictly increasing, last = n_regions, within 1..n_regions." },
+        "n_seg_zone": { "$ref": "quantity.schema.json", "description": "n_seg_zone[i] = 2 x (zone_end[i] - zone_start[i] + 1)." },
+        "flow_frac_zones": { "$ref": "quantity.schema.json", "description": "Zone flow fractions; each positive, sum = 1." },
+        "graphite_split_policy": {
+          "type": "string",
+          "const": "raw_kHT_sum",
+          "description": "Graphite-direct share is the raw sum(kHT1+kHT2); do not renormalize."
+        },
+        "trim": {
+          "type": "object",
+          "required": ["TF1", "TF2", "TG", "TF1_regions", "TF2_regions", "TG_regions"],
+          "description": "Temperatures in degC."
+        },
+        "mixing_pot": {
+          "type": "object",
+          "required": ["Ac", "L", "Ar", "Tmix_0"],
+          "description": "Tmix_0 in degC."
+        },
+        "intra_channel_radial": { "$ref": "#/$defs/intraChannelRadial" },
+        "vol_upper_plenum": {
+          "type": "object",
+          "required": ["rule"],
+          "additionalProperties": false,
+          "properties": {
+            "rule": { "type": "string", "minLength": 1 },
+            "doc": { "type": "string" },
+            "source": { "type": "string" }
+          },
+          "description": "Symbolic rule node (no value/unit); e.g. '2 * vdot_fuel'."
+        },
+        "maturity": {
+          "type": "string",
+          "enum": ["reference_regression", "discretization_study", "exploratory_geometry"],
+          "description": "Machine-readable core-maturity label (owner-settable enum; validated at load time by helpers.plant_config)."
+        },
+        "physical_data_maturity": {
+          "type": "string",
+          "enum": ["reviewed_design_basis", "legacy_inherited", "pending_source_review", "synthetic"],
+          "description": "Machine-readable physical-data maturity label (owner-settable enum; validated at load time by helpers.plant_config): reviewed_design_basis = traced to a reviewed external design basis; legacy_inherited = inherited from the former Modelica implementation, not yet source-reviewed; pending_source_review = source named, review open; synthetic = placeholder values without physical provenance."
+        }
+      }
+    }
+  }
+}

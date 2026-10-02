@@ -4,33 +4,30 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
-import shutil
-import sys
 
 try:
-    from .paths import default_startup_csv_path, default_startup_run_dir
-except ImportError:
-    from paths import default_startup_csv_path, default_startup_run_dir
+    from ._common import (
+        CORE_CHOICES,
+        ensure_supported_python,
+        add_package_argument,
+        resolve_startup_csv_path,
+        startup_plot_run_dir,
+    )
+    from .paths import default_startup_run_dir
+except ImportError:  # script-style execution from startup/
+    from _common import (
+        CORE_CHOICES,
+        ensure_supported_python,
+        add_package_argument,
+        resolve_startup_csv_path,
+        startup_plot_run_dir,
+    )
+    from paths import default_startup_run_dir
 
 
-def _ensure_supported_python() -> None:
-    if sys.version_info < (3, 13):
-        return
-    if os.environ.get("MSRR_PLOT_REEXEC") == "1":
-        return
-    py312 = shutil.which("python3.12")
-    if py312 is None:
-        raise SystemExit(
-            "Python 3.13 detected, but this environment's NumPy/Matplotlib build is not "
-            "compatible. Run with python3.12 (or install matching 3.13 wheels)."
-        )
-    os.environ["MSRR_PLOT_REEXEC"] = "1"
-    os.execv(py312, [py312, *sys.argv])
 
-
-_ensure_supported_python()
+ensure_supported_python()
 
 try:
     import matplotlib.pyplot as plt
@@ -99,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--core_model",
         type=str,
-        choices=("1r", "9r"),
+        choices=CORE_CHOICES,
         default="1r",
         help="Core model for default run path and CSV name",
     )
@@ -108,15 +105,24 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help=(
-            "Run directory containing startup artifacts "
-            "(default: 00runs/startup-startup_to_1mw-<core_model>)"
+            "Run directory containing startup artifacts (default: "
+            "00runs/startup-startup_to_1mw-<core_model>); the default CSV "
+            "and output names resolve against this directory, and "
+            "segmented-package runs (default "
+            "00runs/segmented/startup-<scenario>-<core_model>; under an "
+            "explicit --run_dir its segmented/ subdirectory) are probed "
+            "automatically; a CSV in the segmented default directory keeps "
+            "the default outputs beside it"
         ),
     )
     parser.add_argument(
         "--csv",
         type=Path,
         default=None,
-        help="Path to startup CSV (default derived from run definition)",
+        help=(
+            "Path to startup CSV (default derived from the run "
+            "definition, honoring --run_dir and the segmented/ probe)"
+        ),
     )
     parser.add_argument(
         "--out",
@@ -146,6 +152,7 @@ def parse_args() -> argparse.Namespace:
         default=1.0e6,
         help="Source strength [n/s] used when source column is absent",
     )
+    add_package_argument(parser)
     args = parser.parse_args()
 
     if args.run_dir is None:
@@ -155,13 +162,26 @@ def parse_args() -> argparse.Namespace:
             core_model=args.core_model,
         )
     if args.csv is None:
-        # Keep the CSV name from the run definition but honor an explicit
-        # --run_dir (campaign runs write artifacts under their own tree).
-        args.csv = args.run_dir / default_startup_csv_path(
+        # Shared run-dir rule (startup/_common.py): an explicit --run_dir
+        # relocates the default CSV; segmented-package runs live at
+        # 00runs/segmented/startup-<scenario>-<core> by default, or under
+        # <run_dir>/segmented/ (probed automatically for 1r/9r).
+        args.csv = resolve_startup_csv_path(
             repo_root,
             scenario=SCENARIO,
             core_model=args.core_model,
-        ).name
+            run_dir=args.run_dir,
+            package=args.package,
+        )
+    # Review 2026-10-01 M6: a CSV in the segmented default run directory
+    # keeps the default plot outputs beside it, outside 00runs/startup-*.
+    args.run_dir = startup_plot_run_dir(
+        repo_root,
+        scenario=SCENARIO,
+        core_model=args.core_model,
+        run_dir=args.run_dir,
+        csv=args.csv,
+    )
     if args.out is None:
         args.out = args.run_dir / DEFAULT_OUT_NAME
     if args.signed_log_out is None:
@@ -269,7 +289,16 @@ def main() -> int:
     n_pop = np.clip(df.loc[phase_mask, n_pop_col].to_numpy(dtype=float), 1e-30, None)
     ext_pcm = df.loc[phase_mask, ext_reactivity_col].to_numpy(dtype=float) * 1.0e5
 
-    rho0_col = find_column(
+    # Physics review 2026-09-27: mPKE exports the compensation it actually
+    # applies (rho_0applied: the frozen nominal-flow rho_0nom by default);
+    # plot that, ungated. Older runs (live convention) lack the column and
+    # fall back to the flow-gated rho_0dyn reconstruction below.
+    rho0_applied_col = find_column(
+        columns=columns,
+        exact=("pke.rho_0applied",),
+        suffix=("mpke.rho_0applied", "pke.rho_0applied"),
+    )
+    rho0_col = rho0_applied_col or find_column(
         columns=columns,
         exact=("pke.rho_0sta", "pke.rho_0dyn"),
         suffix=("mpke.rho_0sta", "mpke.rho_0dyn", "pke.rho_0sta", "pke.rho_0dyn"),
@@ -283,7 +312,7 @@ def main() -> int:
         rho0_pcm = df.loc[phase_mask, rho0_col].to_numpy(dtype=float) * 1.0e5
     else:
         rho0_pcm = np.zeros_like(ext_pcm)
-    if ff_col is not None:
+    if ff_col is not None and rho0_applied_col is None:
         fuel_flow_frac = df.loc[phase_mask, ff_col].to_numpy(dtype=float)
         rho0_active_pcm = np.where(fuel_flow_frac > MIN_FLOW_FOR_RHO0, rho0_pcm, 0.0)
     else:
@@ -299,6 +328,17 @@ def main() -> int:
             t_s, source_strength=args.fallback_source_strength
         )
 
+    fb_col = find_column(
+        columns=columns,
+        exact=("reactivityFeedback.TotalTempFeedback", "core1R.react.TotalTempFeedback"),
+        suffix=("reactivityfeedback.totaltempfeedback", "react.totaltempfeedback"),
+    )
+    fb_pcm = (
+        df.loc[phase_mask, fb_col].to_numpy(dtype=float) * 1.0e5
+        if fb_col is not None
+        else np.full_like(ext_pcm, np.nan)
+    )
+
     model_reactivity_col = find_column(
         columns=columns,
         exact=("pke.reactivity",),
@@ -308,8 +348,8 @@ def main() -> int:
         model_reactivity_label = model_reactivity_col
         model_pcm = df.loc[phase_mask, model_reactivity_col].to_numpy(dtype=float) * 1.0e5
     else:
-        model_reactivity_label = "external+rho0 compensation (fallback)"
-        model_pcm = ext_comp_pcm
+        model_reactivity_label = "external+rho0+feedback (fallback)"
+        model_pcm = ext_comp_pcm + np.nan_to_num(fb_pcm, nan=0.0)
     rho0dyn_col = find_column(
         columns=columns,
         exact=("pke.rho_0dyn",),
@@ -322,6 +362,13 @@ def main() -> int:
         total_pcm = np.full_like(model_pcm, np.nan)
 
     fig, axes = plt.subplots(3, 1, figsize=(14, 11), sharex=True)
+
+    # Source-on spans are added before any legend is built so the
+    # "Source on" patch reaches every axis legend.
+    for i, (s0, s1) in enumerate(windows):
+        label = "Source on" if i == 0 else None
+        for axis in axes:
+            axis.axvspan(s0 / 3600.0, s1 / 3600.0, color="#f2c14e", alpha=0.16, label=label)
 
     ax = axes[0]
     ax.semilogy(
@@ -348,7 +395,9 @@ def main() -> int:
     ax.legend(left_handles + right_handles, left_labels + right_labels, loc="best")
 
     ax = axes[2]
-    ax.plot(t_h, model_pcm, color="#9467bd", linewidth=1.2, label="External reactivity")
+    ext_label = "External + $\\rho_0$ compensation" if rho0_col is not None else "External reactivity"
+    ax.plot(t_h, ext_comp_pcm, color="#ff7f0e", linewidth=1.2, label=ext_label)
+    ax.plot(t_h, model_pcm, color="#9467bd", linewidth=1.2, label="Model reactivity")
     if not np.all(np.isnan(total_pcm)):
         ax.plot(
             t_h,
@@ -372,11 +421,6 @@ def main() -> int:
             fontsize=9,
         )
 
-    for i, (s0, s1) in enumerate(windows):
-        label = "Source on" if i == 0 else None
-        for axis in axes:
-            axis.axvspan(s0 / 3600.0, s1 / 3600.0, color="#f2c14e", alpha=0.16, label=label)
-
     t_end_h = float(t_h.max())
     for axis in axes:
         axis.set_xlim(0.0, t_end_h)
@@ -397,6 +441,16 @@ def main() -> int:
 
         fig2, axes2 = plt.subplots(2, 1, figsize=(14, 8.5), sharex=True)
         axp, axr = axes2
+
+        # Source-on spans are added before any legend is built so the
+        # "Source on" patch reaches both legends.
+        for i, (s0, s1) in enumerate(windows):
+            label = "Source on" if i == 0 else None
+            for axis in axes2:
+                axis.axvspan(
+                    s0 / 3600.0, s1 / 3600.0, color="#f2c14e", alpha=0.16, label=label
+                )
+
         axp.plot(t_h, log_power, color="#1f77b4", linewidth=1.4, label="$\\ln(P_{fission}[W])$")
         axp.grid(True, alpha=0.3)
         axp.set_ylabel("$\\ln(P_{fission}[W])$")
@@ -418,12 +472,6 @@ def main() -> int:
         for bound_s in PHASE_BOUNDS_S:
             for axis in axes2:
                 axis.axvline(bound_s / 3600.0, color="#444444", linestyle="--", linewidth=0.9)
-        for i, (s0, s1) in enumerate(windows):
-            label = "Source on" if i == 0 else None
-            for axis in axes2:
-                axis.axvspan(
-                    s0 / 3600.0, s1 / 3600.0, color="#f2c14e", alpha=0.16, label=label
-                )
 
         for axis in axes2:
             axis.set_xlim(0.0, t_end_h)
@@ -434,6 +482,11 @@ def main() -> int:
         fig2.savefig(signed_log_out_path, dpi=args.dpi)
         plt.close(fig2)
         print(f"Wrote: {signed_log_out_path}")
+    else:
+        print(
+            "Signed-log figure skipped: total reactivity (rho_total) not "
+            "available for this run (pke.rho_0dyn column missing or all NaN)."
+        )
 
     print(f"Wrote: {out_path}")
     print(f"Phase-4 cutoff: {args.phase4_end_s:.1f} s ({args.phase4_end_s / 3600.0:.3f} h)")
@@ -444,7 +497,11 @@ def main() -> int:
         print(f"Total reactivity variable (rho_total): {model_reactivity_label} - {rho0dyn_col} [pcm]")
         print(f"Final total reactivity: {float(total_pcm[-1]):.6g} pcm")
     if rho0_col is not None:
-        print(f"rho0 compensation variable: {rho0_col} (flow-gated with {ff_col if ff_col else 'no flow gate'})")
+        print(
+            f"rho0 compensation variable: {rho0_col} "
+            + ("(applied compensation, ungated)" if rho0_applied_col
+               else f"(flow-gated with {ff_col if ff_col else 'no flow gate'})")
+        )
     return 0
 
 

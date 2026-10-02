@@ -8,9 +8,29 @@ import os
 import re
 import shlex
 import shutil
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+
+try:
+    from helpers.setpoint_model_version import check_table_model_version
+    from helpers.setpoint_provenance import (
+        DEFAULT_POLICY,
+        QUALIFIED_COLUMN,
+        handle_missing_verdict_column,
+        require_qualified_row,
+    )
+except ImportError:  # direct-script execution outside an installed checkout
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from helpers.setpoint_model_version import check_table_model_version
+    from helpers.setpoint_provenance import (
+        DEFAULT_POLICY,
+        QUALIFIED_COLUMN,
+        handle_missing_verdict_column,
+        require_qualified_row,
+    )
 
 TABLE_OVERRIDE_NAME_MAP = {
     "reactivityFeedback.FuelTempSetPointNode1": "fuelTempSetPointNode1",
@@ -53,6 +73,17 @@ POWER_COLUMN_CANDIDATES = (
     "FuelChannelNomPower",
     "npopulationn",
 )
+
+# SegmentedMSR sweeps (review 2026-10-01 M3): the result-variable contract of
+# the segmented vehicles carries the neutron population as the overlay column
+# ``nOut`` (``= pke.n_population.n``, the quantity the legacy column
+# ``<core>.mpke.n_population.n`` carries; 1 at 1 MW). It is consulted only
+# AFTER the legacy candidates and the legacy substring fallback, so every
+# column the collector chose before is still chosen. The contract's PowerBlock
+# taps ``pb.reactorPower`` / ``pb.fissionPower.P`` are deliberately not
+# candidates: they are in W, while the gain and operating-point offset assume
+# the normalized population (1 at the 1 MW operating point).
+SEGMENTED_POWER_COLUMN_CANDIDATES = ("nOut",)
 
 # Keep only time plus the response signal columns needed by collectFreqNominal*.
 REDUCED_CSV_VARIABLE_FILTER = (
@@ -178,6 +209,46 @@ def format_frequency_key(freq: float) -> str:
     return f"{float(freq):.12g}"
 
 
+def frequency_case_dir_name(freq: float) -> str:
+    """Campaign case-directory name for one frequency slot.
+
+    Built from the canonical :func:`format_frequency_key` (``.12g``: 12
+    significant digits), so requested frequencies distinct at that
+    precision occupy distinct slots (the historical zero-padded ``:08.5f``
+    formatting collapsed distinct requested frequencies into one directory
+    name, clobbering the first point's outputs). Two requested frequencies
+    that coincide at 12 significant digits share a key by construction
+    (``1.0`` vs ``1.0000000000001`` both format as ``"1"``); such
+    duplicates fail closed at the duplicate-key refusal (sweep-manifest
+    request validation and the collect-side mapping check) instead of
+    silently sharing a slot.
+    """
+    return f"freq{format_frequency_key(freq)}"
+
+
+def frequency_file_prefix(freq: float) -> str:
+    """Result-CSV file prefix for one frequency slot (matches the dir name)."""
+    return f"MSRR_{frequency_case_dir_name(freq)}"
+
+
+def resolve_case_dir(results_dir: str, freq: float) -> str:
+    """Resolve one frequency case directory, preferring the canonical name.
+
+    Read-side helper: new campaigns name case directories from the canonical
+    frequency key, while the frozen pre-fix published records keep their old
+    zero-padded ``:08.5f`` names (never migrated). The canonical candidate
+    wins when both exist; the legacy name is accepted so published trees
+    stay plottable without renaming.
+    """
+    canonical = os.path.join(results_dir, frequency_case_dir_name(freq))
+    if os.path.isdir(canonical):
+        return canonical
+    legacy = os.path.join(results_dir, f"freq{float(freq):08.5f}")
+    if os.path.isdir(legacy):
+        return legacy
+    return canonical
+
+
 def compute_effective_stop_time(
     freq_point: float,
     *,
@@ -185,7 +256,17 @@ def compute_effective_stop_time(
     ss_time: float,
     stop_time_mode: str,
     min_cycles_after_ss: float,
+    settle_discard_s: float = 0.0,
 ) -> float:
+    """Per-frequency stop time.
+
+    ``fixed`` returns ``base_stop_time``.  ``min_cycles_after_ss`` returns
+    ``max(base_stop_time, ceil(ss_time + settle_discard_s + N * 2*pi/omega))``:
+    the fit window, which opens ``settle_discard_s`` after the perturbation
+    start (settling discard, ``freq/fr_protocol.py``), still spans at least
+    ``N = min_cycles_after_ss`` forcing periods.  ``settle_discard_s = 0``
+    (the default) is the historical rule.
+    """
     if stop_time_mode == "fixed":
         return float(base_stop_time)
     if stop_time_mode != "min_cycles_after_ss":
@@ -194,8 +275,14 @@ def compute_effective_stop_time(
         raise ValueError("frequency must be positive for dynamic stop-time mode")
     if min_cycles_after_ss <= 0:
         raise ValueError("min_cycles_after_ss must be > 0 for dynamic stop-time mode")
+    if settle_discard_s < 0 or not math.isfinite(settle_discard_s):
+        raise ValueError("settle_discard_s must be finite and >= 0")
 
-    required = ss_time + min_cycles_after_ss * (2.0 * math.pi / freq_point)
+    required = (
+        ss_time
+        + float(settle_discard_s)
+        + min_cycles_after_ss * (2.0 * math.pi / freq_point)
+    )
     return float(max(base_stop_time, math.ceil(required)))
 
 
@@ -316,8 +403,27 @@ def load_steady_state_overrides(
     heat_loss: int,
     *,
     allowed_override_keys: set[str],
+    policy: str = DEFAULT_POLICY,
 ) -> dict[str, float]:
-    rows: list[tuple[float, dict[str, float]]] = []
+    """Select the steady-state override row(s) for *power* from *table_path*.
+
+    Selection (unchanged by TASK-20260910-01 P3): exact power match, else
+    the endpoint row when *power* lies outside the table, else linear
+    interpolation between the bracketing pair.  Provenance gate (added by
+    P3, via the shared ``helpers/setpoint_provenance.py`` contract): the
+    raw rows the selection logic consumes -- the exact-match row, the
+    endpoint row, or BOTH rows of the bracketing interpolation pair -- are
+    checked BEFORE any return or interpolation, so a ``qualified=0`` row
+    can no longer be silently dropped or interpolated around.  Tables
+    without the ``qualified`` column follow the *policy* parameter (the
+    shared module's branch (a), the only policy-dependent branch):
+    ``strict`` (the default) refuses the load naming the CSV;
+    ``legacy-compatible`` warns loudly on stderr and proceeds, exactly
+    like ``transients.run_nonlinear_steps.load_setpoints``.  Policy
+    selection is an explicit library parameter -- there is no CLI flag
+    for it.
+    """
+    rows: list[tuple[float, dict[str, float], dict[str, str]]] = []
 
     with open(table_path, newline="") as handle:
         reader = csv.DictReader(handle)
@@ -327,6 +433,7 @@ def load_steady_state_overrides(
             )
 
         has_heat_loss = HEAT_LOSS_COLUMN in reader.fieldnames
+        has_qualified = QUALIFIED_COLUMN in reader.fieldnames
         for raw_row in reader:
             if not raw_row or raw_row.get("power", "").strip() == "":
                 continue
@@ -351,26 +458,47 @@ def load_steady_state_overrides(
                 values[override_name] = float(value)
             if has_heat_loss:
                 values[HEAT_LOSS_COLUMN] = bool(int(heat_loss))
-            rows.append((row_power, values))
+            rows.append((row_power, values, raw_row))
 
     if not rows:
         raise ValueError(f"Steady-state table {table_path} has no usable data rows.")
 
     rows.sort(key=lambda item: item[0])
 
-    for row_power, values in rows:
+    # Provenance gate (TASK-20260910-01 P3): a legacy table without the
+    # 'qualified' column follows the setpoint policy (TASK-20260911-01 P4)
+    # via the shared module: strict (the default) refuses the load naming
+    # the CSV; legacy-compatible warns loudly on stderr and proceeds. A
+    # qualified table gates every raw row the selection logic below is
+    # about to consume, BEFORE any return or interpolation.
+    if not has_qualified:
+        handle_missing_verdict_column(table_path, policy=policy)
+    # The table must belong to the current lumped model (its model-version
+    # sidecar; helpers.setpoint_model_version): strict refuses a stale table.
+    check_table_model_version(table_path, policy=policy)
+
+    def _gate_row(raw_row: dict[str, str]) -> None:
+        if has_qualified:
+            require_qualified_row(raw_row, table_path, power)
+
+    for row_power, values, raw_row in rows:
         if abs(row_power - power) < 1e-12:
+            _gate_row(raw_row)
             return dict(values)
 
     if power <= rows[0][0]:
+        _gate_row(rows[0][2])
         return dict(rows[0][1])
     if power >= rows[-1][0]:
+        _gate_row(rows[-1][2])
         return dict(rows[-1][1])
 
     for idx in range(1, len(rows)):
-        low_power, low_values = rows[idx - 1]
-        high_power, high_values = rows[idx]
+        low_power, low_values, low_raw = rows[idx - 1]
+        high_power, high_values, high_raw = rows[idx]
         if low_power <= power <= high_power:
+            _gate_row(low_raw)
+            _gate_row(high_raw)
             span = high_power - low_power
             if span <= 0:
                 return dict(low_values)
@@ -386,6 +514,7 @@ def load_steady_state_overrides(
                 result[key] = low_value + weight * (high_value - low_value)
             return result
 
+    _gate_row(rows[-1][2])
     return dict(rows[-1][1])
 
 
@@ -421,7 +550,12 @@ def read_run_params(results_dir):
 
 
 def find_power_column(cleaned_columns) -> str | None:
-    """Locate the power-signal column among cleaned CSV headers."""
+    """Locate the power-signal column among cleaned CSV headers.
+
+    Order: the legacy candidates, the legacy substring fallback, then the
+    segmented contract column (:data:`SEGMENTED_POWER_COLUMN_CANDIDATES`),
+    so legacy result headers resolve exactly as before.
+    """
     for candidate in POWER_COLUMN_CANDIDATES:
         if candidate in cleaned_columns:
             return candidate
@@ -429,6 +563,9 @@ def find_power_column(cleaned_columns) -> str | None:
         col_lower = col.lower()
         if 'npopulation' in col_lower or 'nompower' in col_lower:
             return col
+    for candidate in SEGMENTED_POWER_COLUMN_CANDIDATES:
+        if candidate in cleaned_columns:
+            return candidate
     return None
 
 
@@ -463,11 +600,13 @@ REJECT_ILL_CONDITIONED = "ill_conditioned"
 class SineFitResult:
     """Diagnostics recorded for one fixed-frequency sine fit.
 
-    The fitted model is ``y(t) = c0 + c1*(t - t_c) + a*sin(w*t) + b*cos(w*t)``
-    with ``t_c`` the midpoint of the samples passed to the fitter, expressed in
-    the caller's time base (absolute simulation seconds, or seconds relative to
-    ``fit_start`` if the caller pre-shifted its timestamps). ``c1`` is 0 when
-    the optional linear trend is disabled.
+    The fitted model is ``y(t) = c0 + c1*(t - t_c) + c2*(t - t_c)**2 +
+    a*sin(w*t) + b*cos(w*t)`` with ``t_c`` the midpoint of the samples passed
+    to the fitter, expressed in the caller's time base (absolute simulation
+    seconds, or seconds relative to ``fit_start`` if the caller pre-shifted
+    its timestamps). ``trend_order`` is the polynomial order of the trend
+    (0: offset only, 1: linear, 2: quadratic); ``c1`` / ``c2`` are 0 when
+    the corresponding term is not fitted.
 
     ``fit_start`` / ``fit_end`` are the first/last sample times in that same
     caller time base. Amplitude is ``hypot(a, b)`` and phase follows the
@@ -493,6 +632,7 @@ class SineFitResult:
     b_cos: float = math.nan
     c0: float = math.nan
     c1: float = 0.0
+    c2: float = 0.0
     freq_rad_s: float = math.nan
     n_samples: int = 0
     n_cycles: float = math.nan
@@ -506,11 +646,24 @@ class SineFitResult:
     uniformity_metric: float = 0.0
     weighted_intervals: bool = False
     trend_enabled: bool = False
+    trend_order: int = 0
     rejection_reason: str = ""
 
     @property
     def ok(self) -> bool:
         return self.rejection_reason == "" and self.amplitude is not None
+
+    def window_mean_level(self) -> float:
+        """Mean of the fitted trend polynomial over ``[fit_start, fit_end]``.
+
+        ``c0`` for trend orders 0 and 1 (the linear term averages to zero
+        over the centered window); ``c0 + c2 * h**2 / 3`` for the quadratic
+        trend, ``h`` being the half-span.  This is the mean operating level
+        the forced response rides on, used by the ``window_mean_power`` gain
+        reference (freq/README.md, "Drift regime").
+        """
+        half_span = 0.5 * (float(self.fit_end) - float(self.fit_start))
+        return float(self.c0) + float(self.c2) * half_span * half_span / 3.0
 
     def predict(self, times) -> np.ndarray:
         """Evaluate the fitted model at the given times (caller time base)."""
@@ -524,6 +677,7 @@ class SineFitResult:
         return (
             self.c0
             + self.c1 * (t_arr - t_c)
+            + self.c2 * (t_arr - t_c) ** 2
             + self.a_sin * np.sin(w * t_arr)
             + self.b_cos * np.cos(w * t_arr)
         )
@@ -566,12 +720,28 @@ def trapezoid_sample_weights(dt: np.ndarray) -> np.ndarray:
     return weights
 
 
+def resolve_trend_order(fit_trend: bool = False, trend_order: int | None = None) -> int:
+    """Effective polynomial trend order (``trend_order`` wins over ``fit_trend``).
+
+    ``fit_trend=True`` is the historical linear trend (order 1); an explicit
+    ``trend_order`` of 0, 1, or 2 selects the offset-only, linear, or
+    quadratic trend.  Anything else is refused.
+    """
+    if trend_order is None:
+        return 1 if fit_trend else 0
+    order = int(trend_order)
+    if order not in (0, 1, 2):
+        raise ValueError(f"trend_order must be 0, 1, or 2 (got {trend_order!r})")
+    return order
+
+
 def fit_sine_least_squares(
     time_data,
     power_data,
     freq_point: float,
     *,
     fit_trend: bool = False,
+    trend_order: int | None = None,
     uniformity_tol: float = 1e-6,
     min_samples: int = 10,
     min_cycles: float = 0.25,
@@ -581,7 +751,15 @@ def fit_sine_least_squares(
 
     Model::
 
-        y(t) = c0 + c1*(t - t_c) + a*sin(w*t) + b*cos(w*t),   w = freq_point
+        y(t) = c0 + c1*(t - t_c) [+ c2*(t - t_c)**2] + a*sin(w*t) + b*cos(w*t)
+
+    with ``w = freq_point``.  The quadratic term (``trend_order=2``) removes
+    the slow free-mode drift of drift-regime points (freq/README.md,
+    "Drift regime"); its design columns are built on the normalized time
+    ``(t - t_c) / h`` (``h`` the half-span) so the condition number stays
+    comparable to the offset-only fit, and ``c1`` / ``c2`` are converted
+    back to per-second units.  Orders 0 and 1 keep the historical columns
+    byte for byte.
 
     replacing the historical mean-subtract + ``(2/N) y*{sin,cos}`` projections,
     which are biased whenever the fit window does not span an integer number of
@@ -602,6 +780,9 @@ def fit_sine_least_squares(
         Fixed angular frequency ``w`` (rad/s).
     fit_trend:
         Include the linear trend term ``c1*(t - t_c)``. Default off.
+    trend_order:
+        Explicit trend order (0, 1, or 2); overrides ``fit_trend`` when given
+        (see :func:`resolve_trend_order`).
     uniformity_tol:
         Nonuniformity threshold for the timestamp grid. When
         ``max(|dt / median(dt) - 1|)`` exceeds it, the solve uses trapezoidal
@@ -631,6 +812,7 @@ def fit_sine_least_squares(
         ``r_squared_unweighted`` keep the raw-sample values for comparison
         (identical to the primary pair when no weighting was applied).
     """
+    poly_order = resolve_trend_order(fit_trend, trend_order)
     w = float(freq_point)
     t_all = np.asarray(time_data, dtype=float).ravel()
     y_all = np.asarray(power_data, dtype=float).ravel()
@@ -657,7 +839,8 @@ def fit_sine_least_squares(
             REJECT_INVALID_FREQUENCY,
             freq_rad_s=w,
             n_samples=n_samples,
-            trend_enabled=bool(fit_trend),
+            trend_enabled=poly_order >= 1,
+            trend_order=poly_order,
         )
 
     period = 2.0 * math.pi / w
@@ -667,7 +850,8 @@ def fit_sine_least_squares(
             REJECT_INSUFFICIENT_SAMPLES,
             freq_rad_s=w,
             n_samples=0,
-            trend_enabled=bool(fit_trend),
+            trend_enabled=poly_order >= 1,
+            trend_order=poly_order,
         )
 
     fit_start = float(t[0])
@@ -682,7 +866,8 @@ def fit_sine_least_squares(
             n_cycles=n_cycles,
             fit_start=fit_start,
             fit_end=fit_end,
-            trend_enabled=bool(fit_trend),
+            trend_enabled=poly_order >= 1,
+            trend_order=poly_order,
         )
 
     if n_cycles < float(min_cycles):
@@ -694,11 +879,27 @@ def fit_sine_least_squares(
             n_cycles=n_cycles,
             fit_start=fit_start,
             fit_end=fit_end,
-            trend_enabled=bool(fit_trend),
+            trend_enabled=poly_order >= 1,
+            trend_order=poly_order,
         )
 
     dt = np.diff(t)
-    dt_median = float(np.median(dt)) if dt.size else 0.0
+    if dt.size == 0:
+        # A single surviving sample carries no interval information.  The
+        # uniformity metric below needs at least one interval; np.max of the
+        # empty difference array would raise ValueError and break the
+        # documented always-returns-a-result contract, so reject explicitly.
+        return _rejected_fit(
+            REJECT_INSUFFICIENT_SAMPLES,
+            freq_rad_s=w,
+            n_samples=n_samples,
+            n_cycles=n_cycles,
+            fit_start=fit_start,
+            fit_end=fit_end,
+            trend_enabled=poly_order >= 1,
+            trend_order=poly_order,
+        )
+    dt_median = float(np.median(dt))
     # dt is strictly positive here: the grid is sorted and duplicate
     # timestamps were collapsed above.
 
@@ -712,9 +913,13 @@ def fit_sine_least_squares(
         weights /= weights.mean()
 
     t_c = 0.5 * (fit_start + fit_end)
+    half_span = 0.5 * (fit_end - fit_start)
     columns = [np.ones_like(t)]
-    if fit_trend:
+    if poly_order == 1:
         columns.append(t - t_c)
+    elif poly_order == 2:
+        tau = (t - t_c) / half_span
+        columns.extend((tau, tau * tau))
     columns.extend((np.sin(w * t), np.cos(w * t)))
     design = np.column_stack(columns)
 
@@ -771,14 +976,19 @@ def fit_sine_least_squares(
             condition_number=cond,
             uniformity_metric=uniformity_metric,
             weighted_intervals=weights is not None,
-            trend_enabled=bool(fit_trend),
+            trend_enabled=poly_order >= 1,
+            trend_order=poly_order,
         )
 
-    index = 2 if fit_trend else 1
+    index = 1 + poly_order
     a_sin = float(coefficients[index])
     b_cos = float(coefficients[index + 1])
     c0 = float(coefficients[0])
-    c1 = float(coefficients[1]) if fit_trend else 0.0
+    c1 = float(coefficients[1]) if poly_order == 1 else 0.0
+    c2 = 0.0
+    if poly_order == 2:
+        c1 = float(coefficients[1]) / half_span
+        c2 = float(coefficients[2]) / (half_span * half_span)
 
     return SineFitResult(
         amplitude=float(math.hypot(a_sin, b_cos)),
@@ -787,6 +997,7 @@ def fit_sine_least_squares(
         b_cos=b_cos,
         c0=c0,
         c1=c1,
+        c2=c2,
         freq_rad_s=w,
         n_samples=n_samples,
         n_cycles=n_cycles,
@@ -799,8 +1010,224 @@ def fit_sine_least_squares(
         condition_number=cond,
         uniformity_metric=uniformity_metric,
         weighted_intervals=weights is not None,
-        trend_enabled=bool(fit_trend),
+        trend_enabled=poly_order >= 1,
+        trend_order=poly_order,
     )
+
+
+# ---------------------------------------------------------------------------
+# Fit-window convergence (settling) metrics
+# ---------------------------------------------------------------------------
+#
+# A point is accepted as settled only when two consecutive sub-windows of
+# its fit window (the two halves) agree.  The gain comparison normalizes
+# each half's amplitude by that half's fitted mean power level (c0): at low
+# power the PKE is bilinear (response amplitude proportional to the current
+# mean population), so a slow drift of the operating point after the sine
+# switch-on would otherwise masquerade as an amplitude drift.  The
+# operating-point offset itself (|c0/P - 1|, with P the manifest power) is a
+# separate criterion, because a constant offset biases the reported
+# absolute gain without making the halves disagree.
+
+#: Default acceptance tolerances (see freq/README.md "Convergence check").
+CONVERGENCE_GAIN_TOL = 0.005
+CONVERGENCE_PHASE_TOL_DEG = 0.5
+CONVERGENCE_OPERATING_POINT_TOL = 0.005
+#: Operating-point bound for points whose gain is referenced to the fit
+#: window's mean power (drift-regime points, ``gain_reference =
+#: window_mean_power``).  There the mean-power excursion -- the switch-on
+#: free mode plus the second-order rectification of the forcing (the
+#: kinetics term rho * n averages to a DC reactivity drho * s * cos(phi) / 2,
+#: up to ~12 % of P at 1e-5 MW and 10 rad/s) -- no longer biases the gain:
+#: at omega >= 120 omega_n the relative transfer function depends on the
+#: power only through the loop gain (<= 7e-5), so an excursion eps changes
+#: the gain by <= 7e-5 * eps.  The bound only guards the linearization
+#: (freq/README.md, "Drift regime").
+CONVERGENCE_DRIFT_OPERATING_POINT_TOL = 0.2
+
+CONVERGENCE_REASON_GAIN = "halves_gain"
+CONVERGENCE_REASON_PHASE = "halves_phase"
+CONVERGENCE_REASON_OPERATING_POINT = "operating_point"
+CONVERGENCE_REASON_NOT_EVALUABLE = "not_evaluable"
+
+
+def _prepare_fit_grid(time_data, power_data) -> tuple[np.ndarray, np.ndarray]:
+    """Finite, sorted, duplicate-collapsed samples (same rules as the fitter)."""
+    t_all = np.asarray(time_data, dtype=float).ravel()
+    y_all = np.asarray(power_data, dtype=float).ravel()
+    finite = np.isfinite(t_all) & np.isfinite(y_all)
+    t = t_all[finite]
+    y = y_all[finite]
+    order = np.argsort(t, kind="stable")
+    t = t[order]
+    y = y[order]
+    if t.size > 1:
+        keep = np.concatenate((t[1:] != t[:-1], [True]))
+        t = t[keep]
+        y = y[keep]
+    return t, y
+
+
+def harmonic_ratio(
+    time_data,
+    power_data,
+    freq_point: float,
+    *,
+    fit_trend: bool = False,
+    trend_order: int | None = None,
+    uniformity_tol: float = 1e-6,
+) -> float:
+    """Second-to-first harmonic amplitude ratio ``|H2| / |H1|`` of one window.
+
+    Simultaneous least squares of ``c0 [+ trend] + sum_{k=1,2} a_k sin(k w
+    t) + b_k cos(k w t)`` with the same trend-order and interval weighting
+    rules as :func:`fit_sine_least_squares`.  Returns NaN when the window
+    cannot carry the fit (fewer than 10 samples or under one forcing period).
+    """
+    order = resolve_trend_order(fit_trend, trend_order)
+    w = float(freq_point)
+    t, y = _prepare_fit_grid(time_data, power_data)
+    if t.size < 10 or not math.isfinite(w) or w <= 0:
+        return math.nan
+    if (t[-1] - t[0]) * w / (2.0 * math.pi) < 1.0:
+        return math.nan
+    t_c = 0.5 * (t[0] + t[-1])
+    columns = [np.ones_like(t)]
+    if order == 1:
+        columns.append(t - t_c)
+    elif order == 2:
+        tau = (t - t_c) / (0.5 * (t[-1] - t[0]))
+        columns.extend((tau, tau * tau))
+    for k in (1, 2):
+        columns.extend((np.sin(k * w * t), np.cos(k * w * t)))
+    design = np.column_stack(columns)
+    dt = np.diff(t)
+    dt_median = float(np.median(dt))
+    scaled_y = y
+    if float(np.max(np.abs(dt / dt_median - 1.0))) > float(uniformity_tol):
+        weights = trapezoid_sample_weights(dt)
+        weights /= weights.mean()
+        sqrt_w = np.sqrt(weights)
+        design = design * sqrt_w[:, None]
+        scaled_y = y * sqrt_w
+    coefficients, _, _, _ = np.linalg.lstsq(design, scaled_y, rcond=None)
+    base = 1 + order
+    h1 = math.hypot(float(coefficients[base]), float(coefficients[base + 1]))
+    h2 = math.hypot(float(coefficients[base + 2]), float(coefficients[base + 3]))
+    if h1 <= 0 or not math.isfinite(h1):
+        return math.nan
+    return float(h2 / h1)
+
+
+def fit_window_convergence(
+    time_data,
+    power_data,
+    freq_point: float,
+    *,
+    fit_trend: bool = False,
+    trend_order: int | None = None,
+    min_samples: int = 10,
+    min_cycles: float = 0.25,
+    max_condition_number: float = 1e8,
+) -> dict:
+    """Two-halves agreement metrics for one fit window.
+
+    The window's samples (caller time base, as passed to the fitter) are
+    split at the midpoint time and each half is fitted with
+    :func:`fit_sine_least_squares` under the same options.  Returns a dict
+    with ``evaluated`` (both halves fitted), ``reason`` (why not, when not),
+    ``gain_rel_diff`` (``(A2/c0_2) / (A1/c0_1) - 1``), ``gain_rel_diff_raw``
+    (``A2/A1 - 1``), ``phase_diff_deg`` (second minus first half, wrapped to
+    [-180, 180)), ``h2_h1_ratio`` (full window, :func:`harmonic_ratio`), and
+    the per-half cycle counts.
+    """
+    t, y = _prepare_fit_grid(time_data, power_data)
+    out = {
+        "evaluated": False,
+        "reason": "",
+        "gain_rel_diff": math.nan,
+        "gain_rel_diff_raw": math.nan,
+        "phase_diff_deg": math.nan,
+        "h2_h1_ratio": math.nan,
+        "half_cycles": math.nan,
+    }
+    if t.size < 2:
+        out["reason"] = "window has fewer than two samples"
+        return out
+    order = resolve_trend_order(fit_trend, trend_order)
+    out["h2_h1_ratio"] = harmonic_ratio(t, y, freq_point, trend_order=order)
+    t_mid = 0.5 * (float(t[0]) + float(t[-1]))
+    first = t <= t_mid
+    second = t >= t_mid
+    kwargs = dict(
+        trend_order=order,
+        min_samples=min_samples,
+        min_cycles=min_cycles,
+        max_condition_number=max_condition_number,
+    )
+    fit_a = fit_sine_least_squares(t[first], y[first], freq_point, **kwargs)
+    fit_b = fit_sine_least_squares(t[second], y[second], freq_point, **kwargs)
+    out["half_cycles"] = float(fit_a.n_cycles) if math.isfinite(fit_a.n_cycles) else math.nan
+    if not fit_a.ok or not fit_b.ok:
+        out["reason"] = (
+            "half-window fit rejected: "
+            f"{fit_a.rejection_reason or 'ok'} / {fit_b.rejection_reason or 'ok'}"
+        )
+        return out
+    amp_a = float(fit_a.amplitude)
+    amp_b = float(fit_b.amplitude)
+    if amp_a <= 0 or not math.isfinite(amp_a):
+        out["reason"] = "first-half amplitude is zero"
+        return out
+    out["gain_rel_diff_raw"] = amp_b / amp_a - 1.0
+    # Each half's amplitude is normalized by that half's mean operating
+    # level (c0 for trend orders 0/1; the quadratic trend's window mean).
+    level_a = fit_a.window_mean_level()
+    level_b = fit_b.window_mean_level()
+    if level_a != 0 and level_b != 0 and math.isfinite(level_a) and math.isfinite(level_b):
+        out["gain_rel_diff"] = (amp_b / level_b) / (amp_a / level_a) - 1.0
+    else:
+        out["gain_rel_diff"] = out["gain_rel_diff_raw"]
+    out["phase_diff_deg"] = math.degrees(
+        wrap_phase_rad(float(fit_b.phase_rad) - float(fit_a.phase_rad))
+    )
+    out["evaluated"] = True
+    return out
+
+
+def convergence_verdict(
+    metrics: dict,
+    *,
+    operating_point_offset: float | None,
+    gain_tol: float = CONVERGENCE_GAIN_TOL,
+    phase_tol_deg: float = CONVERGENCE_PHASE_TOL_DEG,
+    operating_point_tol: float = CONVERGENCE_OPERATING_POINT_TOL,
+) -> tuple[bool, str]:
+    """Accept a point only when its halves agree and its operating point holds.
+
+    Returns ``(converged, reason)``; ``reason`` is empty when converged and
+    otherwise a ``;``-joined list of failed criteria
+    (:data:`CONVERGENCE_REASON_GAIN`, :data:`CONVERGENCE_REASON_PHASE`,
+    :data:`CONVERGENCE_REASON_OPERATING_POINT`, or
+    :data:`CONVERGENCE_REASON_NOT_EVALUABLE`).  ``operating_point_offset``
+    is ``c0 / P - 1``; ``None`` skips that criterion (no reference power).
+    """
+    if not metrics.get("evaluated"):
+        detail = metrics.get("reason") or "halves not fitted"
+        return False, f"{CONVERGENCE_REASON_NOT_EVALUABLE}: {detail}"
+    failed: list[str] = []
+    gain_diff = float(metrics.get("gain_rel_diff", math.nan))
+    phase_diff = float(metrics.get("phase_diff_deg", math.nan))
+    if not math.isfinite(gain_diff) or abs(gain_diff) > float(gain_tol):
+        failed.append(CONVERGENCE_REASON_GAIN)
+    if not math.isfinite(phase_diff) or abs(phase_diff) > float(phase_tol_deg):
+        failed.append(CONVERGENCE_REASON_PHASE)
+    if operating_point_offset is not None and (
+        not math.isfinite(float(operating_point_offset))
+        or abs(float(operating_point_offset)) > float(operating_point_tol)
+    ):
+        failed.append(CONVERGENCE_REASON_OPERATING_POINT)
+    return (not failed), ";".join(failed)
 
 
 def matlab_scalar(value) -> str:

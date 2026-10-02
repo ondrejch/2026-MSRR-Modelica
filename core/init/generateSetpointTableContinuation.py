@@ -24,6 +24,10 @@ except ImportError:
     import generateSetpointTable as base
     from _common import variable_filter_for_core
 
+# Kept as a pinned module constant (tests pin it equal to the base
+# generator's table).  Horizon resolution goes through
+# ``base.resolve_long_horizon`` (rev022 N-6), which reads the base tables
+# and adds the continuous low-power band rule.
 STOP_TIME_OVERRIDES: dict[str, dict[str, float]] = {
     # Low-power 1R points also require long horizons for n/setpoint convergence.
     "1r": {
@@ -55,7 +59,11 @@ def parse_args() -> argparse.Namespace:
         "--powers",
         type=str,
         default="1e-5,1e-4,1e-3,1e-2,0.1,0.2,0.4,0.6,0.8,1.0,1.2",
-        help="Comma-separated target powers.",
+        help=(
+            "Comma-separated target powers (p.u.). Each value must lie "
+            "inside the validated setpoint envelope [1e-5, 1.2] p.u.; "
+            "out-of-envelope powers are refused (fail closed)."
+        ),
     )
     parser.add_argument(
         "--core_model",
@@ -70,22 +78,25 @@ def parse_args() -> argparse.Namespace:
         default=default_core_dir,
         help="Directory containing core Modelica files (default: ../core).",
     )
+    # Sentinel convention shared with the base generator (rev021 §3.6):
+    # ``None`` means "use the default"; whitespace-only strings resolve the
+    # same way.
     parser.add_argument(
         "--model",
         type=str,
-        default="",
+        default=None,
         help="Path to MSRR.mo (default: <core_dir>/MSRR.mo).",
     )
     parser.add_argument(
         "--library",
         type=str,
-        default="",
+        default=None,
         help="Path to SMD_MSR_Modelica.mo (default: <core_dir>/SMD_MSR_Modelica.mo).",
     )
     parser.add_argument(
         "--model_name",
         type=str,
-        default="",
+        default=None,
         help="Modelica model name (default derived from --core_model).",
     )
     parser.add_argument(
@@ -229,7 +240,13 @@ def parse_args() -> argparse.Namespace:
         "--retry_nls",
         type=str,
         default="mixed",
-        help="Retry NLS mode if primary attempt fails (empty disables retry).",
+        help=(
+            "Retry NLS mode for the fallback attempt, which runs when the "
+            "primary attempt raises OR fails its late-window convergence "
+            "checks (non-convergence is the retry's purpose, not just "
+            "solver robustness; rev021 §2.4 D4). Empty disables the "
+            "fallback attempt entirely."
+        ),
     )
     parser.add_argument(
         "--no_feedback",
@@ -353,6 +370,35 @@ def n_column_for_core(core_model: str) -> str:
     return "core1R.mpke.n_population.n"
 
 
+#: 9R scalar columns excluded from the continuation override chain.  MSRR.mo
+#: binds ``TF1_0_regions[1]`` to ``fuelTempSetPointNode1`` (and TF2/TG
+#: likewise) via ``cat(1, {fuelTempSetPointNode1}, ...[2:9])``, so once the
+#: regional arrays are overridden the region-1 binding follows the regional
+#: value and the scalar override is silently dead for region 1.  The
+#: harmonized scalars are table-reporting columns (volume-weighted averages),
+#: not the right continuation targets; the chain keeps the regional arrays
+#: only (rev021 §2.4 D5).
+NINE_R_CHAIN_SCALAR_COLUMNS = frozenset(
+    {"fuelTempSetPointNode1", "fuelTempSetPointNode2", "graphiteTempSetPoint"}
+)
+
+
+def chain_init_overrides(
+    core_model: str,
+    overrides: dict[str, float] | None,
+) -> dict[str, float] | None:
+    """Strip the dead 9R scalar overrides from a continuation init set."""
+    if overrides is None:
+        return None
+    if core_model != "9r":
+        return dict(overrides)
+    return {
+        column: value
+        for column, value in overrides.items()
+        if column not in NINE_R_CHAIN_SCALAR_COLUMNS
+    }
+
+
 def should_use_low_stop_time(power: float, threshold: float) -> bool:
     return power <= threshold + 1e-15
 
@@ -426,11 +472,14 @@ def run_one_step(
     n_col: str,
 ) -> tuple[dict[str, float], dict[str, object]]:
     stop_time = args.low_stop_time if should_use_low_stop_time(power, args.low_power_threshold) else args.base_stop_time
-    power_tag = base.sanitize_power_tag(power)
-    override_stop = STOP_TIME_OVERRIDES.get(args.core_model, {}).get(power_tag)
+    # rev022 N-6: shared resolver -- exact tabulated entries plus the
+    # continuous low-power band rule, so a new low power no longer silently
+    # falls back to the base horizons.
+    override_stop, interval_override = base.resolve_long_horizon(
+        args.core_model, power
+    )
     if override_stop is not None:
         stop_time = max(stop_time, override_stop)
-    interval_override = getattr(base, "NUMBER_OF_INTERVALS_OVERRIDES", {}).get(args.core_model, {}).get(power_tag)
     primary_flags = build_simflags(
         user_flags=args.simflags_extra,
         steady_state=args.enable_steady_state,
@@ -448,9 +497,11 @@ def run_one_step(
         attempts.append(("retry", max(stop_time, args.retry_stop_time), retry_flags))
 
     last_exc: Exception | None = None
-    for tag, this_stop_time, this_flags in attempts:
+    for index, (tag, this_stop_time, this_flags) in enumerate(attempts):
         # Hash this continuation module into the manifest so a byte change
         # to it (simflags, steps, stop-time overrides) moves the fingerprint.
+        # The per-attempt simflags string enters the fingerprint too (D8):
+        # the primary and the alternate-NLS retry simulate DIFFERENTLY.
         expected_manifest = base.build_setpoint_case_manifest(
             core_model=args.core_model,
             power=power,
@@ -463,6 +514,7 @@ def run_one_step(
             feedback_on=feedback_on,
             method=args.method,
             variable_filter=variable_filter,
+            simflags=this_flags,
             extra_workflow_python_files=[Path(__file__).resolve()],
         )
         try:
@@ -533,10 +585,31 @@ def run_one_step(
                 "convergence_passed": bool(report["passed"]),
                 "convergence_report": str(base.convergence_report_path(csv_path)),
             }
+            if not report["passed"] and index + 1 < len(attempts):
+                # Non-converged primary (rev021 §2.4 D4): the longer-horizon
+                # / alternate-NLS retry is exactly the remedy for
+                # non-convergence, so run it instead of returning
+                # qualified=0.  The retry launches into the same slot with
+                # reuse_ok=False, quarantining this attempt's CSV before
+                # re-simulating, so the published pair is the retry's.  If
+                # the retry itself raises, the RuntimeError below surfaces
+                # that failure (this unconverged row is not returned).
+                print(
+                    f"  power={power}: {tag} attempt failed late-window "
+                    f"checks; running the next attempt "
+                    f"(stop_time={attempts[index + 1][1]:g}, "
+                    f"simflags={attempts[index + 1][2]!r})"
+                )
+                continue
             return row, meta
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
 
+    # The loop always terminates in one of: a ``return`` (the attempt
+    # converged, or the FINAL attempt finished unconverged -- that row is
+    # returned qualified=0 so main() applies its accept/exclude policy) or
+    # an exception recorded in ``last_exc``.  An unconverged NON-FINAL
+    # attempt only ``continue``s, so it can never fall out of the loop.
     if last_exc is None:
         raise RuntimeError(f"Failed to solve power={power} for unknown reason.")
     raise RuntimeError(f"Failed to solve power={power}: {last_exc}") from last_exc
@@ -585,9 +658,22 @@ def main() -> None:
     powers_desc = sorted(powers, reverse=True)
 
     core_dir = os.path.abspath(args.core_dir)
-    model_src = os.path.abspath(args.model) if args.model.strip() else os.path.join(core_dir, "MSRR.mo")
-    library_src = os.path.abspath(args.library) if args.library.strip() else os.path.join(core_dir, "SMD_MSR_Modelica.mo")
-    model_name = args.model_name.strip() or base.MODEL_NAME_BY_CORE[args.core_model]
+    # Same None-sentinel resolution as the base generator (rev021 §3.6).
+    model_src = (
+        os.path.abspath(args.model.strip())
+        if args.model is not None and args.model.strip()
+        else os.path.join(core_dir, "MSRR.mo")
+    )
+    library_src = (
+        os.path.abspath(args.library.strip())
+        if args.library is not None and args.library.strip()
+        else os.path.join(core_dir, "SMD_MSR_Modelica.mo")
+    )
+    model_name = (
+        args.model_name.strip()
+        if args.model_name is not None and args.model_name.strip()
+        else base.MODEL_NAME_BY_CORE[args.core_model]
+    )
     feedback_on = not args.no_feedback
 
     if args.output.strip():
@@ -674,12 +760,18 @@ def main() -> None:
         try:
             for i, step_power in enumerate(steps, start=1):
                 if current_overrides is None:
-                    current_overrides = base.resolve_init_overrides(
+                    # For 9R the chain carries the regional arrays only; the
+                    # harmonized scalars would be silently dead for region 1
+                    # (D5).
+                    current_overrides = chain_init_overrides(
                         args.core_model,
-                        init_table,
-                        step_power,
-                        args.heat_loss,
-                        args.init_temp,
+                        base.resolve_init_overrides(
+                            args.core_model,
+                            init_table,
+                            step_power,
+                            args.heat_loss,
+                            args.init_temp,
+                        ),
                     )
                 print(f"  Step {i}/{len(steps)} at power={step_power:.12g}")
                 row, meta = run_one_step(
@@ -696,7 +788,10 @@ def main() -> None:
                     n_col=n_col,
                 )
 
-                current_overrides = {col: row[col] for col in steady_state_columns}
+                current_overrides = chain_init_overrides(
+                    args.core_model,
+                    {col: row[col] for col in steady_state_columns},
+                )
                 meta_rows.append(
                     {
                         "core_model": args.core_model,
@@ -752,7 +847,11 @@ def main() -> None:
         raise SystemExit(1)
 
     succeeded = len(rows)
+    model_sources = base.model_sources_for(model_src, library_src)
     if args.append and os.path.exists(output_path):
+        from helpers.setpoint_model_version import require_appendable
+
+        require_appendable(output_path, sources=model_sources)
         existing = base.read_existing_table_rows(output_path, steady_state_columns)
         rows = base.merge_table_rows(existing, rows)
     else:
@@ -763,6 +862,9 @@ def main() -> None:
         rows=rows,
         output_path=output_path,
         steady_state_columns=steady_state_columns,
+        model_sources=model_sources,
+        generator="core.init.generateSetpointTableContinuation",
+        generation=base.generation_record(args, __file__),
     )
 
     os.makedirs(os.path.dirname(meta_path) or ".", exist_ok=True)

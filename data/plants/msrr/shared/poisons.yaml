@@ -1,0 +1,126 @@
+# Homogeneous primary-fuel fission-product poison data (Te-135/I-135/Xe-135,
+# Pm-149/Sm-149). One global inventory per isotope; not spatial.
+# Tracking and feedback are off by default on SegmentedMSR vehicles.
+# Yield convention chain_entry (machine-readable per isotope in yield_basis):
+# every member with a modeled parent (I-135, Xe-135, Sm-149) carries its
+# INDEPENDENT yield, and parent decay is explicit in the five-state homogeneous
+# inventory. The first modeled member of a chain may carry the CUMULATIVE yield
+# of its unmodeled precursors: Pm-149 does (cumulative A=149, Nd-149 not
+# modeled); Te-135 carries its independent yield. Sm-149 direct yield is 0.
+# helpers/plant_config.py refuses a cumulative basis on a member with a modeled
+# parent (that would count the parent's production twice).
+# Microscopic cross-sections are authored in barns (unit b); neutron flux
+# is authored in n/(cm2.s) (unit 1/(cm2.s)). The segmented emitter and the
+# Python oracle convert those to SI before the DAE (1 b = 1e-28 m2;
+# 1/(cm2.s) = 1e4 1/(m2.s)).
+# Worth denominator (physics review 2026-09-27): no longer an authored free
+# coefficient. The model and the oracle derive the critical-core one-group
+# absorption Sigma_a = nu*Sigma_f with Sigma_f = F0/(phi0*V_avg) (V_avg = the
+# flux-averaging volume: V_core for core_volume, V_fuel for total_fuel), so the
+# worth is consistent with the same F0, phi0 and nu (kinetics.nu) used for the
+# production and burnup rates; the former 1.0/m placeholder made Xe/Sm worth
+# ~1.9x the self-consistent value.
+#
+# This dataset is msrr_reference_v1. Production/publication use requires a
+# separate scientific review of pedigree, spectrum, and the reduced-order
+# worth coefficient. Values are not copied from SMD_MSR_Modelica.Nuclear.Poisons
+# placeholder defaults.
+dataset_id: msrr_reference_v1
+yield_convention: chain_entry
+yield_basis:
+  Te135: independent
+  I135: independent
+  Xe135: independent
+  Pm149: cumulative_chain_entry
+  Sm149: independent
+flux_averaging: core_volume
+inventory_unit: atoms
+maturity: reduced_order_pending_review
+Te135_lambda:
+  value: 0.0364814305557866
+  unit: 1/s
+  doc: Te-135 decay constant lambda = ln(2)/T_half with T_half = 19.0 s.
+  source: "ENSDF/NuDat (NNDC): Te-135 half-life 19.0 s; lambda = ln(2)/19 s"
+I135_lambda:
+  value: 2.93059083713558e-05
+  unit: 1/s
+  doc: I-135 decay constant lambda = ln(2)/T_half with T_half = 6.57 h.
+  source: "ENSDF/NuDat (NNDC): I-135 half-life 6.57 h; lambda = ln(2)/(6.57*3600) s^-1"
+Xe135_lambda:
+  value: 2.10649019809183e-05
+  unit: 1/s
+  doc: Xe-135 decay constant lambda = ln(2)/T_half with T_half = 9.14 h.
+  source: "ENSDF/NuDat (NNDC): Xe-135 half-life 9.14 h; lambda = ln(2)/(9.14*3600) s^-1"
+Pm149_lambda:
+  value: 3.62730793880912e-06
+  unit: 1/s
+  doc: Pm-149 decay constant lambda = ln(2)/T_half with T_half = 53.08 h. Sm-149 is treated as stable.
+  source: "ENSDF/NuDat (NNDC): Pm-149 half-life 53.08 h; lambda = ln(2)/(53.08*3600) s^-1"
+Te135_yield:
+  value: 0.03112
+  unit: "1"
+  doc: Independent fission yield of Te-135 (atoms per fission). Independent convention; not cumulative.
+  source: "ENDF/B-VIII.0 independent yields, U-235 thermal (England-Rider 1993 compilation LA-UR-94-3106 lineage). MSR-spectrum adjustment pending review."
+I135_yield:
+  value: 0.02880
+  unit: "1"
+  doc: Independent fission yield of I-135 (atoms per fission). Independent convention.
+  source: "ENDF/B-VIII.0 independent yields, U-235 thermal (England-Rider 1993 / LA-UR-94-3106 lineage). MSR-spectrum adjustment pending review."
+Xe135_yield:
+  value: 0.00241
+  unit: "1"
+  doc: Independent (direct) fission yield of Xe-135 (atoms per fission). Independent convention.
+  source: "ENDF/B-VIII.0 independent yields, U-235 thermal (England-Rider 1993 / LA-UR-94-3106 lineage). MSR-spectrum adjustment pending review."
+Pm149_yield:
+  value: 0.01071
+  unit: "1"
+  doc: Fission yield assigned to Pm-149 (atoms per fission). This is the CUMULATIVE A=149 chain yield (yield_basis.Pm149 = cumulative_chain_entry). Nd-149 and earlier precursors are not modeled, so their independent yields are folded into the first modeled member; Sm-149 then receives only the explicit Pm-149 decay.
+  source: "U-235 thermal cumulative A=149 yield 0.01071 (England-Rider 1993 / LA-UR-94-3106 lineage), used as the chain-entry yield; label corrected in the physics review 2026-09-27. MSR-spectrum adjustment pending review."
+Sm149_yield:
+  value: 0.0
+  unit: "1"
+  doc: Direct independent fission yield of Sm-149. Set to 0; Sm-149 is produced by Pm-149 decay in this inventory.
+  source: "ENDF/B-VIII.0 independent yield of Sm-149 is negligible (~1e-12); this model uses y_Sm = 0 unless a reviewed convention includes direct production."
+sigma_a_Xe:
+  value: 2.65e6
+  unit: b
+  doc: Xe-135 microscopic absorption cross-section (2200 m/s thermal equivalent) in barns. The segmented emitter converts to SI (1 b = 1e-28 m2) before binding PlantData.
+  source: "Mughabghab, Atlas of Neutron Resonances; 2200 m/s Xe-135 (n,gamma) 2.65e6 b. Spectrum-averaged MSRR value pending review."
+sigma_a_Sm:
+  value: 40140
+  unit: b
+  doc: Sm-149 microscopic absorption cross-section (2200 m/s thermal equivalent) in barns. The segmented emitter converts to SI (1 b = 1e-28 m2) before binding PlantData.
+  source: "Mughabghab, Atlas of Neutron Resonances; 2200 m/s Sm-149 (n,gamma) 40140 b. Spectrum-averaged MSRR value pending review."
+sigma_a_fuel:
+  value: 1.0
+  unit: 1/m
+  doc: >
+    LEGACY - not read by the current SegmentedMSR library (physics review
+    2026-09-27). The homogeneous poison-worth denominator is now DERIVED in
+    SegmentedMSR.Nuclear.HomogeneousPoisons and helpers.poison_oracle as the
+    critical-core one-group absorption Sigma_a = kinetics.nu*F0/(phi0*V_avg)
+    (1.8958 1/m for the 0.4 m3 core-volume averaging); this former 1.0/m
+    placeholder made the Xe/Sm worth ~1.9x the self-consistent value. Kept
+    only so the pre-2026-09-27 loader/library copies replayed by the
+    history non-vacuity tests still bind.
+  source: "Former author-set reduced-order placeholder (superseded 2026-09-27)."
+phi0:
+  value: 1.0e13
+  unit: 1/(cm2.s)
+  doc: Full-power core-average neutron flux in n/(cm2.s). The segmented emitter converts to SI (1/(m2.s) = 1e4 * 1/(cm2.s)) before binding PlantData. Averaging convention is flux_averaging=core_volume; absorption uses b_s = sigma_a * phi0 * (V_core/V_fuel) * (n/n0) in SI.
+  source: "Order-of-magnitude 1 MWth thermal-research-reactor flux (1e13 n/cm2/s). Not an MSRR lattice calculation; pending spectrum/geometry review. Physics review 2026-09-27 note: the PSAR average power density (2.45 MW/m3) with Sigma_f ~ 0.08-0.1 /cm implies phi ~ 1e12 n/cm2/s, i.e. this value is likely 5-10x high (it also sets Sigma_f = F0/(phi0*V) and therefore the worth denominator); kept as authored pending an MSRR flux calculation."
+energy_per_fission:
+  value: 3.204353268e-11
+  unit: J
+  doc: Recoverable energy per fission used to derive the whole-reactor fission rate F0 = P / E from plant nominal_power. 200 MeV * 1.602176634e-19 J/eV.
+  source: "CODATA 2018 eV-joule relation 1.602176634e-19 J/eV; 200 MeV conventional recoverable fission energy."
+k_rem_Xe:
+  value: 0.0
+  unit: 1/s
+  doc: Optional global first-order Xe-135 removal rate. Zero in the first dataset (no sparging/off-gas).
+  source: "First-release default; a reviewed removal law may replace this scalar without adding compartment states."
+k_rem_Sm:
+  value: 0.0
+  unit: 1/s
+  doc: Optional global first-order Sm-149 removal rate. Zero; Sm is treated as stable and unremoved.
+  source: "First-release default (no Sm removal)."

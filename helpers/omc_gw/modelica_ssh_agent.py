@@ -12,6 +12,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -50,6 +51,40 @@ DEFAULT_STALE_HEARTBEAT_SECONDS = 1800.0
 STALE_HEARTBEAT_ENV_VAR = "MODELICA_SSH_STALE_HEARTBEAT_SECONDS"
 HEARTBEAT_PERIOD_SECONDS = 60
 
+# job_id values are generated as
+# f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:8]}"; the
+# strict pattern is enforced before any job_id is joined into a path.
+JOB_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
+
+
+def _validate_job_id(job_id: str) -> None:
+    """Reject job_id values that do not match the generator pattern.
+
+    Validation runs before *job_id* is joined into any path so a crafted value
+    cannot traverse out of the jobs root. The rejected value is deliberately
+    not included in the error message.
+    """
+
+    if not JOB_ID_RE.fullmatch(job_id):
+        raise ValueError(
+            "job_id must match the generator pattern YYYYMMDDTHHMMSSZ-XXXXXXXX "
+            "(8 digits, 'T', 6 digits, 'Z', dash, 8 lowercase hex digits)."
+        )
+
+
+def _validate_worker_name(worker: str) -> None:
+    """Reject worker values ssh could parse as options or shell tokens.
+
+    The rejected value is deliberately not included in the error message.
+    """
+
+    if worker.startswith("-"):
+        raise ValueError(
+            "Worker names must not start with '-' (they would be parsed as an SSH option)."
+        )
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in worker):
+        raise ValueError("Worker names must not contain whitespace or control characters.")
+
 
 def _utc_now_iso() -> str:
     """Return the current UTC time in a compact ISO-8601 format."""
@@ -63,11 +98,30 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write a JSON object to *path* atomically with stable formatting."""
+def _write_private_text(path: Path, text: str) -> None:
+    """Write *text* to *path* readable only by the owner (mode 0o600).
 
-    tmp_path = path.with_name(path.name + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    Submitted command text can embed credentials or tokens; on a shared jobs
+    filesystem the file must never pass through a group/world-readable state,
+    so it is created with 0o600 and the mode is re-asserted afterwards.
+    """
+
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.chmod(path, 0o600)
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write a JSON object to *path* atomically with stable formatting.
+
+    The payload can embed the submitted command, so the temporary file is
+    owner-only (0o600) and its name carries the writer PID so two writers of
+    the same file cannot interleave in one sibling temporary.
+    """
+
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    _write_private_text(tmp_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     os.replace(tmp_path, path)
 
 
@@ -80,8 +134,9 @@ def _emit_json(payload: dict[str, Any], *, stream: Any = sys.stdout) -> None:
 
 
 def _job_dir(jobs_root: Path, job_id: str) -> Path:
-    """Return the job directory for *job_id*."""
+    """Return the job directory for *job_id* (validated before the path join)."""
 
+    _validate_job_id(job_id)
     return jobs_root / job_id
 
 
@@ -209,6 +264,8 @@ def _parse_workers(worker_csv: str | None) -> list[str]:
     workers = [item.strip() for item in worker_csv.split(",") if item.strip()]
     if not workers:
         raise ValueError("No workers configured.")
+    for worker in workers:
+        _validate_worker_name(worker)
     return workers
 
 
@@ -396,6 +453,7 @@ def _launch_remote_job(
 ) -> str:
     """Launch *run_script_path* on *worker* over SSH and return the background PID."""
 
+    _validate_worker_name(worker)
     remote_command = f"nohup bash {shlex.quote(str(run_script_path))} >/dev/null 2>&1 & echo $!"
     cmd = [ssh_bin, *ssh_options, worker, remote_command]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -407,7 +465,13 @@ def _launch_remote_job(
     lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
     if not lines:
         raise RuntimeError(f"SSH launch on {worker} returned no PID.")
-    return lines[-1]
+    launcher_pid = lines[-1]
+    # The PID comes from remote ssh stdout; only a plain non-negative integer
+    # is accepted so untrusted output never reaches meta.json verbatim. The
+    # rejected value is deliberately not included in the message.
+    if not (launcher_pid.isascii() and launcher_pid.isdigit()):
+        raise RuntimeError("SSH launch returned a non-numeric launcher PID.")
+    return launcher_pid
 
 
 def _load_job_view(jobs_root: Path, job_id: str) -> dict[str, Any]:
@@ -503,7 +567,7 @@ def _reserve_job_slot(
         with _submission_lock(jobs_root):
             if args.worker:
                 if args.worker not in workers:
-                    raise ValueError(f"Worker {args.worker!r} not in allowed workers: {workers}")
+                    raise ValueError(f"Requested worker is not in the allowed workers list: {workers}")
                 active_by_worker = _active_tasks_by_worker(jobs_root)
                 chosen_worker = None
                 if active_by_worker.get(args.worker, 0) + args.tasks <= args.max_tasks_per_worker:
@@ -551,7 +615,7 @@ def _reserve_job_slot(
                     "max_tasks_per_worker": args.max_tasks_per_worker,
                 }
                 _write_json(job_directory / "meta.json", meta)
-                (job_directory / "command.sh").write_text(command + "\n", encoding="utf-8")
+                _write_private_text(job_directory / "command.sh", command + "\n")
                 return chosen_worker, job_directory, run_script_path, meta
 
         if not args.wait_for_slot:

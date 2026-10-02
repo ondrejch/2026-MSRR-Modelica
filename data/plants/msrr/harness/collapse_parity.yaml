@@ -1,0 +1,30 @@
+# Documentation-only QA-collapse / trim-harness literals.
+# load_plant includes this file in the plant fingerprint; the emitter does
+# not write these values into product PlantData (plan principle P4).
+# Collapse maps bind [Core1R.kG, 0] (digit-identical to collapse_q_mod).
+perturbation_amplitude_pcm:
+  value: 1.0
+  unit: pcm
+  doc: HARNESS parity sine amplitude.
+  source: SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS.perturbationAmplitudePcm
+perturbation_omega:
+  value: 0.01
+  unit: rad/s
+  source: SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS.perturbationOmega
+perturbation_start:
+  value: 2000.0
+  unit: s
+  source: SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS.perturbationStartTime
+pump_trip_time:
+  value: 1.0e7
+  unit: s
+  doc: Harness pump tripTime (matches production loop default).
+dhrs_time:
+  value: 1.0e6
+  unit: s
+collapse_q_mod:
+  value: [0.07, 0.0]
+  unit: "1"
+  doc: Collapse ChannelMap qModDirect — all 7% graphite heat on the Single graphite node.
+  source: SegmentedMSR.Reactors.R1MSRRuhxTrimThermalSS map.qModDirect
+moderator_lumping: Single

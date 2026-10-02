@@ -54,7 +54,12 @@ REMOTE_PROGRESS_SCRIPT = textwrap.dedent(
 
 
     def format_dir_name(freq: float) -> str:
-        return f"freq{freq:08.5f}"
+        # Mirrors freq._common.frequency_case_dir_name() (canonical
+        # freq{:.12g} case dirs, e.g. freq0.01) so the expected-name map
+        # matches the case directories the canonical runner creates. This
+        # probe runs standalone on the remote host (`python3 - remote_dir`),
+        # so freq._common cannot be imported here; keep the format in sync.
+        return f"freq{float(freq):.12g}"
 
 
     def build_expected_stop_map(base: Path) -> dict[str, float]:
@@ -161,8 +166,15 @@ class WatchCase:
     worker: str | None = None
 
     @property
-    def key(self) -> tuple[str, str, str]:
-        return (self.core, self.power_tag, self.base_dir)
+    def key(self) -> tuple[str, str, str, str]:
+        # Includes job_id so a retried/replacement submission appended to the
+        # log forms a fresh watch key instead of being skipped forever once the
+        # earlier job of the same (core, power_tag, base_dir) was collected.
+        # Case resolution (the unresolved count and the --once exit) follows
+        # only the newest submission per (core, power_tag, base_dir) triple --
+        # see newest_key_by_triple() -- so a collected retry is not held
+        # unresolved by an older blocked job of the same case.
+        return (self.core, self.power_tag, self.base_dir, self.job_id)
 
     @property
     def label(self) -> str:
@@ -208,7 +220,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Inspect current state once and exit instead of polling.",
+        help=(
+            "Inspect current state once and exit instead of polling; "
+            "exit 0 only if every watched case was collected in that single "
+            "pass (a superseded older submission of a retried case does not "
+            "hold the exit), nonzero while the newest submission of any case "
+            "is still waiting or blocked."
+        ),
     )
     parser.add_argument(
         "--host",
@@ -219,8 +237,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_watch_cases(submission_paths: list[str]) -> dict[tuple[str, str, str], WatchCase]:
-    latest_by_key: dict[tuple[str, str, str], WatchCase] = {}
+def load_watch_cases(
+    submission_paths: list[str],
+) -> dict[tuple[str, str, str, str], WatchCase]:
+    latest_by_key: dict[tuple[str, str, str, str], WatchCase] = {}
     for path_str in submission_paths:
         path = Path(path_str)
         if not path.exists():
@@ -244,6 +264,25 @@ def load_watch_cases(submission_paths: list[str]) -> dict[tuple[str, str, str], 
                 )
                 latest_by_key[case.key] = case
     return latest_by_key
+
+
+def newest_key_by_triple(
+    cases: dict[tuple[str, str, str, str], WatchCase],
+) -> dict[tuple[str, str, str], tuple[str, str, str, str]]:
+    """Map each ``(core, power_tag, base_dir)`` triple to its newest watch key.
+
+    ``load_watch_cases`` visits submissions in log order (files, then lines)
+    and preserves first-insertion order for the distinct watch keys: a
+    re-appended duplicate keeps its original position because it records the
+    same submission again, while a retry carries a fresh ``job_id`` and lands
+    after the earlier job. Walking the cases in that order and keeping the
+    last entry per triple therefore yields the newest submission per case,
+    which alone decides whether the case is resolved.
+    """
+    newest: dict[tuple[str, str, str], tuple[str, str, str, str]] = {}
+    for key, case in cases.items():
+        newest[(case.core, case.power_tag, case.base_dir)] = key
+    return newest
 
 
 def build_client(host_override: str | None) -> ModelicaSshClient:
@@ -286,7 +325,18 @@ def local_results_dir(base_dir: str) -> Path:
 def fetch_remote_progress(client: ModelicaSshClient, remote_dir: str) -> dict[str, Any]:
     if not client.host:
         raise RuntimeError("omc_gw host is not configured")
-    cmd = [client.ssh_bin, *client.ssh_options, client.host, "python3", "-", remote_dir]
+    cmd = [
+        client.ssh_bin,
+        *client.ssh_options,
+        client.host,
+        "python3",
+        "-",
+        # rev022 M-1: ssh rejoins the command words and the REMOTE shell
+        # parses them, so the directory needs the same shlex quoting the
+        # client's _compose_remote_command applies -- a base_dir with
+        # spaces or metacharacters otherwise breaks the progress probe.
+        shlex.quote(remote_dir),
+    ]
     proc = subprocess.run(
         cmd,
         input=REMOTE_PROGRESS_SCRIPT,
@@ -366,6 +416,12 @@ def sync_reduced_results(
         "sin_mag_by_freq.csv",
         "--include",
         "output_grid_by_freq.csv",
+        "--include",
+        "sweep_request.manifest.json",
+        "--include",
+        "*.manifest.json",
+        "--include",
+        "*.validation.json",
         "--exclude",
         "*",
         "-e",
@@ -411,9 +467,9 @@ def main() -> int:
     client = build_client(args.host)
     log_path = Path(args.log_path) if args.log_path else None
 
-    collected_cases: set[tuple[str, str, str]] = set()
-    blocked_job_ids: dict[tuple[str, str, str], str] = {}
-    wait_signatures: dict[tuple[str, str, str], tuple[Any, ...]] = {}
+    collected_cases: set[tuple[str, str, str, str]] = set()
+    blocked_job_ids: dict[tuple[str, str, str, str], str] = {}
+    wait_signatures: dict[tuple[str, str, str, str], tuple[Any, ...]] = {}
 
     while True:
         cases = load_watch_cases(args.submissions_jsonl)
@@ -422,7 +478,6 @@ def main() -> int:
             return 1
 
         waiting_cases = 0
-        blocked_cases = 0
 
         for key, case in sorted(cases.items(), key=lambda item: item[1].base_dir):
             if key in collected_cases:
@@ -452,7 +507,6 @@ def main() -> int:
                     sync_reduced_results(client, remote_dir, local_results_dir(case.base_dir))
                     run_local_collect(local_results_dir(case.base_dir), args.collect_jobs)
                 except Exception as exc:  # noqa: BLE001
-                    blocked_cases += 1
                     append_log(log_path, f"blocked {prefix} collect_error={exc}")
                     blocked_job_ids[key] = case.job_id
                     continue
@@ -463,7 +517,6 @@ def main() -> int:
                 continue
 
             if status == "blocked":
-                blocked_cases += 1
                 if blocked_job_ids.get(key) != case.job_id or args.once:
                     hint = extract_failure_hint(job)
                     short = progress.get("short") or []
@@ -488,9 +541,16 @@ def main() -> int:
                 append_log(log_path, message)
                 wait_signatures[key] = signature
 
-        unresolved_cases = len(cases) - len(collected_cases)
+        # Resolution is computed over the newest submission per
+        # (core, power_tag, base_dir) triple: once a retried job collects, an
+        # older blocked job of the same case no longer counts as unresolved,
+        # while a new failed submission still does.
+        newest_by_triple = newest_key_by_triple(cases)
+        unresolved_cases = sum(
+            1 for key in newest_by_triple.values() if key not in collected_cases
+        )
         if args.once:
-            return 1 if blocked_cases else 0
+            return 0 if unresolved_cases == 0 else 1
         if unresolved_cases == 0:
             return 0
         if waiting_cases == 0:

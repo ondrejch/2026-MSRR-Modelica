@@ -125,7 +125,7 @@ def plot_single_power(
         markersize=3,
         label="9-region (9r)",
     )
-    ax_gain.set_ylabel("Gain (dB)")
+    ax_gain.set_ylabel("Gain |dn/drho| (dB; n = P / 1 MW, rho in dk/k)")
     ax_gain.set_title(f"MSRR Bode Comparison at Power = {power:g} MW")
     ax_gain.grid(True, which="both", linestyle="--", alpha=0.6)
     ax_gain.legend(loc="best")
