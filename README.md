@@ -37,7 +37,7 @@ Modelica models and Python tooling for MSRR startup, frequency-response, and tra
 
 ## Previous Work
 
-Relevant previous MSR dynamic-modeling papers of  Dr. Chvala's research group are listed below. 
+Relevant previous MSR dynamic-modeling papers of Dr. Chvala's research group are listed below. 
 BibTeX entries are in `previous_work.bib`.
 
 1. Singh, V., Wheeler, A. M., Lish, M. R., Chvala, O., and Upadhyaya, B. R. Nonlinear Dynamic Model of Molten-Salt Reactor Experiment: Validation and Operational Analysis. *Annals of Nuclear Energy*, 113, 177-193 (2018). https://doi.org/10.1016/j.anucene.2017.10.047
@@ -47,7 +47,7 @@ BibTeX entries are in `previous_work.bib`.
 5. Creasman, T. D., Pathirana, V., and Chvala, O. Sensitivity Study of Parameters Important to Molten Salt Reactor Safety. *Nuclear Engineering and Technology*, 55(5), 1687-1707 (2023). https://doi.org/10.1016/j.net.2023.02.002
 6. Pathirana, V., Creasman, T., Chvala, O., and Skutnik, S. E. Molten Salt Reactor System Dynamics in Simulink and Modelica: A Code-to-Code Comparison. *Nuclear Engineering and Design*, 413, 112484 (2023). https://doi.org/10.1016/j.nucengdes.2023.112484
 7. Dunkle, N., Richardson, J., Pathirana, V., Wheeler, A., Chvala, O., and Skutnik, S. E. NERTHUS Thermal Spectrum Molten Salt Reactor Neutronics and Dynamic Model. *Nuclear Engineering and Design*, 411, 112390 (2023). https://doi.org/10.1016/j.nucengdes.2023.112390
-8. Dunkle, N., Chvala, O., Effect of xenon removal rate on load following in high power thermal spectrum Molten-Salt Reactors. *Nuclear Engineering and Design*, 409, 112329 (2023). https://doi.org/10.1016/j.nucengdes.2023.112329
+8. Dunkle, N., and Chvala, O. Effect of Xenon Removal Rate on Load Following in High Power Thermal Spectrum Molten-Salt Reactors (MSRs). *Nuclear Engineering and Design*, 409, 112329 (2023). https://doi.org/10.1016/j.nucengdes.2023.112329
 
 ## Requirements
 
