@@ -1,0 +1,13 @@
+schema_version: 1
+kind: campaign
+id: review-2026-09
+doc: Paper-rerun campaign composition (legacy package). Composes named scenario files; does not duplicate their tables.
+package: legacy
+cores: [r1, r9]
+scenarios:
+  startup: startup_to_1mw
+  transients: results_ii
+  frequency: paper_nominal
+  frequency_time_example: paper_time_example
+setpoints:
+  qualification_profile: publication

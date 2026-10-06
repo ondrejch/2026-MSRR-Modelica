@@ -1,0 +1,42 @@
+schema_version: 1
+kind: radial_demo
+id: radial_1r10seg_static
+applies_to:
+- msrr.r1_10seg
+maturity: exploratory_geometry
+vehicle: SegmentedMSR.Demos.R1MSRRuhx10SegRadialStatic
+doc: 'Exploratory intra-channel radial demo scenario (TASK-20260914-01 P7; plan
+  §12 Phase G, §14 ladder). Runs the committed SYNTHETIC demo vehicle SegmentedMSR.Demos.R1MSRRuhx10SegRadialStatic
+  - an extension of the production 1r10seg full-loop rig with the optional fuel
+  -> pipe -> annular fluid -> moderator stack ENABLED with a STATIC clean-salt annulus
+  (no circulation, no heat exchanger; plan §14 LADDER CASE 1). Every number in the
+  vehicle''s radial record is a SYNTHETIC PLACEHOLDER with no physical provenance;
+  this is a TRANSPORT/CONSERVATION demonstration run, NOT a plant prediction. Geometry
+  policy EFFECTIVE_THERMAL (review rev019 Phase 2; TASK-20260915-01 P2): each modeled
+  coarse channel binds ONE synthetic literal tube (channelMultiplicity N_c = 1) over
+  the REAL per-segment fuel length 0.1575 m (not the moderator center spacing dz =
+  0.14 m). The effective geometry does NOT close: the computed fuel volume pi*(0.012
+  m)^2*0.1575 m = 7.1e-5 m3 per segment is about a factor of 561 BELOW the declared
+  0.04 m3 per-segment salt inventory, and the 0.020 m annulus outer radius exceeds
+  the 0.020 m lattice pitch (cell inradius 0.010 m; diameter 0.040 m cannot
+  fit). Both discrepancies
+  are disclosed here and in the vehicle docstring; strict_physical is therefore NOT
+  claimable by this deck. Maturity: exploratory_geometry. This deck is deliberately
+  OUTSIDE the existing 1r/1r10seg/9r/r5x5_z10 campaign tables (no automatic activation);
+  the production vehicles stay disabled. All temperatures are kelvin. Run with: python3.12
+  -m helpers.run_radial_demo --scenario radial_1r10seg_static'
+radial_config:
+  enabled: true
+  annular_fluid_mode: static
+  annular_heat_exchanger_enabled: false
+  annular_heat_exchanger_model: none
+  geometry_policy: effective_thermal
+  radial_dataset_id: SYNTHETIC-P6-DEMO
+  radial_maturity: exploratory_geometry
+  radial_fingerprint: b4b1fa281a8db7d78a59561821249bd842b19e537c3b8df3372407c5aa3b9b6d
+  annular_loop_fingerprint: 1b9b4cd6f0543cf055f5acd4c5d0f6bf3372c7e81e6a332e3be86d9ffae7d112
+numerics:
+  stop_time_s: 600.0
+  number_of_intervals: 30000
+  tolerance: 1.0e-06
+  method: dassl

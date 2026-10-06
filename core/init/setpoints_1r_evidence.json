@@ -1,0 +1,558 @@
+{
+  "schema": 1,
+  "kind": "setpoint-qualification-evidence",
+  "core_model": "1r",
+  "table": "setpoints_1r.csv",
+  "table_sha256": "6835346ed95a3b3b5bd4ac521ab35c8074f24a33c2bc0af24a95c0c22d74eb43",
+  "sidecar_sha256": "f869cbacebd568c32ad46a183cc0ac92f80f3e179278d1bb35c79dfe48639a16",
+  "model_version": "psar-basis-2026-10-01",
+  "model_sources_sha256": {
+    "SMD_MSR_Modelica.mo": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838",
+    "MSRR.mo": "7f05b09f483fef862bfc9f76469816cbe44b32d10d84dfc543586f51c2e42383",
+    "generated/MSRR_PlantData.mo": "bfe76f85cdda230799e56673c53aa73491cb49d2c06ee384f38d0b172022b25f"
+  },
+  "generation": {
+    "generator_file": "generateSetpointTable.py",
+    "generator_sha256": "2d283ca6ad8c377f20356599a9fa5888716d4c3423a306f11d1f26947fa73523",
+    "omc_version": "v1.27.0-cmake",
+    "python_version": "3.12.14",
+    "settings": {
+      "core_model": "1r",
+      "model_name": null,
+      "qualification_profile": "publication",
+      "stop_time": 30000.0,
+      "tail_fraction": 0.2,
+      "tail_min_samples": 1000,
+      "tail_min_duration": 1000.0,
+      "conv_residual_amplitude_tol": 0.005,
+      "conv_window_tol": 0.002,
+      "conv_slope_tol": 0.002,
+      "conv_temperature_abs_tol": 0.5,
+      "conv_temperature_floor": 1.0,
+      "conv_power_abs_tol": 1.0,
+      "conv_power_floor": 1.0,
+      "conv_population_floor": 1e-09,
+      "no_feedback": false,
+      "init_temp": 570.0,
+      "accept_unconverged": false
+    }
+  },
+  "continuation_targets": [
+    1e-05,
+    0.01
+  ],
+  "completion_record_sha256": "7bf16434e0b13b657b52a8f5f94d7a3b957d124b223beb38aa6df66bd89b02cc",
+  "worst_margin_over_table": {
+    "window_mean_difference": {
+      "ratio_to_limit": 0.0721635854638021,
+      "signal": "core1R.mpke.n_population.n",
+      "value": 1.442848483176884e-05,
+      "effective_limit": 0.00019994135184713482,
+      "family": "population",
+      "power": 0.1
+    },
+    "projected_trend_drift": {
+      "ratio_to_limit": 0.14448428159984703,
+      "signal": "core1R.mpke.n_population.n",
+      "value": 2.888838258373552e-05,
+      "effective_limit": 0.00019994135184713482,
+      "family": "population",
+      "power": 0.1
+    },
+    "detrended_residual": {
+      "ratio_to_limit": 0.003804064447310521,
+      "signal": "core1R.powerblock.fissionPower.P",
+      "value": 1.772174206293712,
+      "effective_limit": 465.8633498038241,
+      "family": "power",
+      "power": 0.1
+    }
+  },
+  "rows": [
+    {
+      "power": 1e-05,
+      "qualified": "1",
+      "origin": "continuation",
+      "step_dir": "continuation_1r/power_0p00001",
+      "result_csv": "MSRR_ss_0p00001_res.csv",
+      "result_sha256": "60da7533e030437efb1d792c08bdf26b5134db3a75d909e4ea6905c862a50846",
+      "result_rows": 20004,
+      "validation_passed": true,
+      "convergence_report_sha256": "db01764d8506146a9ac51c06f77ffcc773e6e688932427c0503f3b85c227e70d",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 16004,
+        "duration_s": 19990000.0,
+        "samples": 4000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 2.6860937150235655e-10,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 5.373577017381281e-18,
+          "effective_limit": 2.000517326453049e-08,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 5.370434391536302e-10,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.074364705084771e-17,
+          "effective_limit": 2.000517326453049e-08,
+          "family": "population"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 2.3710789413827187e-13,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.1858461261560205e-20,
+          "effective_limit": 5.001293316132622e-08,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.0001,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p00010",
+      "result_csv": "MSRR_ss_0p00010_res.csv",
+      "result_sha256": "7147e31e624d707948eae607b1d4641fbe480acb35dabf779fe84570508effb6",
+      "result_rows": 50060,
+      "validation_passed": true,
+      "convergence_report_sha256": "34057cbdae442bdc658bde487e3c47d07a8147e376854c965c0f4ebe59fd206a",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 40048,
+        "duration_s": 2002000.0,
+        "samples": 10012,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 8.15224362085574e-09,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.6308704603798518e-15,
+          "effective_limit": 2.000517325325785e-07,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 1.4510311607382427e-08,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 2.9028129766444387e-15,
+          "effective_limit": 2.000517325325785e-07,
+          "family": "population"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 6.222060168514468e-09,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 3.1118347915831668e-15,
+          "effective_limit": 5.001293313314463e-07,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.001,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p00100",
+      "result_csv": "MSRR_ss_0p00100_res.csv",
+      "result_sha256": "76e71a9656044215cce791c709225182d5b633a06cbe82a03697e04c2f4887f7",
+      "result_rows": 50012,
+      "validation_passed": true,
+      "convergence_report_sha256": "14f6692660463e9d670900b62b6a48dc3f5d8065cbf28129613afc79e7e7c3a7",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 40010,
+        "duration_s": 200000.0,
+        "samples": 10002,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 3.502198397561436e-06,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 7.006208547349901e-12,
+          "effective_limit": 2.0005173185586204e-06,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 8.662629841216943e-06,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 1.6151318632147233e-05,
+          "effective_limit": 1.8644821408966337,
+          "family": "power"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 4.219682527016863e-06,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 1.9668806779691294e-05,
+          "effective_limit": 4.661205352241584,
+          "family": "power"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.01,
+      "qualified": "1",
+      "origin": "continuation",
+      "step_dir": "continuation_1r/power_0p01000",
+      "result_csv": "MSRR_ss_0p01000_res.csv",
+      "result_sha256": "4abc1e2eb9d21d2476c262f9f2b069d2c4d6baf06a1651fcf30dcf645fe88326",
+      "result_rows": 2000004,
+      "validation_passed": true,
+      "convergence_report_sha256": "516eba4ce2180bf48488845ae3a2fb1d4da648d67c45596177f4583e4523f911",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 1600004,
+        "duration_s": 39999.79999999999,
+        "samples": 400000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 7.60943962728692e-05,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.5222812801973795e-09,
+          "effective_limit": 2.000516929970224e-05,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.00014903996140307657,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 0.0027788229233899385,
+          "effective_limit": 18.644817787322484,
+          "family": "power"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 9.105048487790977e-06,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 4.553700912006409e-10,
+          "effective_limit": 5.00129232492556e-05,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.1,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p10000",
+      "result_csv": "MSRR_ss_0p10000_res.csv",
+      "result_sha256": "0f352ce243818298493bbc8f5ebc47783986581b5c15e60a09853e99ace678b9",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "1fcec380e05a524fe3aecdf1fa863f5f14728057517cca9f95ba72024310baf2",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.0721635854638021,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.442848483176884e-05,
+          "effective_limit": 0.00019994135184713482,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.14448428159984703,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 2.888838258373552e-05,
+          "effective_limit": 0.00019994135184713482,
+          "family": "population"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 0.003804064447310521,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 1.772174206293712,
+          "effective_limit": 465.8633498038241,
+          "family": "power"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.2,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p20000",
+      "result_csv": "MSRR_ss_0p20000_res.csv",
+      "result_sha256": "c060d583a55f23228b105b48af757ee6f5a639add252fa0297ee0be3c5e9e6f9",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "d4c6c2ac7b13c30e13e2f7b040be7fd74cb19d01d054f501db89f1f4204ae93d",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.03245582629420561,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 12.09970420805621,
+          "effective_limit": 372.80530461233053,
+          "family": "power"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.06498871080621417,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 2.599585421510014e-05,
+          "effective_limit": 0.0004000056916441315,
+          "family": "population"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 0.0017813347683469434,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.7813601151558944e-06,
+          "effective_limit": 0.0010000142291103286,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.4,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p40000",
+      "result_csv": "MSRR_ss_0p40000_res.csv",
+      "result_sha256": "96792f4513a178b5bec658fdf9b57d7b96339854954cb180645fc0c00f776de9",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "2a0086aeefd60e1f6ed6c4c5cc93ce2f5b9920ad3a60ab9c81e7c400fd395ab0",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.011831892230532638,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 9.467126013684712e-06,
+          "effective_limit": 0.0008001362613204371,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.023694743602270484,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.8959023558867052e-05,
+          "effective_limit": 0.0008001362613204371,
+          "family": "population"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 0.0006548079140916013,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.3098388906607196e-06,
+          "effective_limit": 0.0020003406533010927,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.6,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p60000",
+      "result_csv": "MSRR_ss_0p60000_res.csv",
+      "result_sha256": "9e9afc8399197e1b0354bdd1b40cb1215cc12eb8990f4a8e64ceb8d2b8bdaffd",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "336975b14f101c9a64bf434e34f75ff4dc0f4f7378642b77df7b05bcf3d50621",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.005090002910438453,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 6.10934337941238e-06,
+          "effective_limit": 0.001200263238923398,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.010192123317530584,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 11.401371240372741,
+          "effective_limit": 1118.6453386766068,
+          "family": "power"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 0.0002854468885399394,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 8.565285174488847e-07,
+          "effective_limit": 0.0030006580973084953,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 0.8,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_0p80000",
+      "result_csv": "MSRR_ss_0p80000_res.csv",
+      "result_sha256": "b0cbfa1333aa6c55c1f75060bac5e79161547938a14fe19612e9c718e174fd99",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "82d24ecbe62c0ebd4732cb5f2b709fec17fc816495b9862c069a4b66267f3b82",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.0017749564260914855,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 2.647467328584753,
+          "effective_limit": 1491.5675053581829,
+          "family": "power"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.0035668238066872775,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 5.32015848739272,
+          "effective_limit": 1491.5675053581829,
+          "family": "power"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 9.938134939713017e-05,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 0.37058497849851846,
+          "effective_limit": 3728.918763395457,
+          "family": "power"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 1.0,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_1p00000",
+      "result_csv": "MSRR_ss_1p00000_res.csv",
+      "result_sha256": "195dfb1696e4c12e445f8b3082c4ed855218f7cdbeb3c797da71b258ce7cfe29",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "a5e46d97f27bff541440017573d9f35fbadaeeb48d398998ab30ee658ade0cca",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.00044659628611681904,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 0.8326740665361285,
+          "effective_limit": 1864.4894559609495,
+          "family": "power"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.0008905842067801039,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 1.7816361192991952e-06,
+          "effective_limit": 0.002000525167340075,
+          "family": "population"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 9.088455522284588e-06,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 4.545421001145301e-08,
+          "effective_limit": 0.0050013129183501875,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    },
+    {
+      "power": 1.2,
+      "qualified": "1",
+      "origin": "first_pass",
+      "step_dir": "work_1r/power_1p20000",
+      "result_csv": "MSRR_ss_1p20000_res.csv",
+      "result_sha256": "7abd67bfd18e273a3da80c289ac184d20f363603c89ab24e70f7a9b4e0702a9f",
+      "result_rows": 300004,
+      "validation_passed": true,
+      "convergence_report_sha256": "d0352948ed1c432ecccf3f40f8fefe7b32a661d68a368536a5d3be84005ce8c6",
+      "convergence_passed": true,
+      "qualification_profile": "publication",
+      "tail": {
+        "start_index": 240004,
+        "duration_s": 5999.799999999999,
+        "samples": 60000,
+        "minimum_duration_s": 1000.0
+      },
+      "worst_margins": {
+        "window_mean_difference": {
+          "ratio_to_limit": 0.0019450547427855554,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 4.669400669898849e-06,
+          "effective_limit": 0.0024006525714601215,
+          "family": "population"
+        },
+        "projected_trend_drift": {
+          "ratio_to_limit": 0.0038799624395025618,
+          "signal": "core1R.powerblock.fissionPower.P",
+          "value": 8.681059764646395,
+          "effective_limit": 2237.408196600833,
+          "family": "power"
+        },
+        "detrended_residual": {
+          "ratio_to_limit": 9.970915955323627e-05,
+          "signal": "core1R.mpke.n_population.n",
+          "value": 5.984176256990105e-07,
+          "effective_limit": 0.006001631428650304,
+          "family": "population"
+        }
+      },
+      "omc_version": "v1.27.0-cmake",
+      "python_version": "3.12.14"
+    }
+  ],
+  "note": "Paths are relative to the campaign setpoints/ directory. The raw per-step result CSVs stay on the cluster; result_sha256 identifies each. worst_margins: measured value / effective limit of each gated convergence check (1.0 = at the limit)."
+}

@@ -1,0 +1,33 @@
+schema_version: 1
+kind: startup
+id: startup_to_1mw
+doc: >
+  Approach to criticality plus a 9-step UHX demand ramp to 1 MW of TOTAL
+  UHX demand (0.95e6 W fission-equivalent at the 0.95 fission fraction).
+  Paper-rerun startup case.
+extends: approach_to_criticality
+applies_to: [msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10]
+package_support:
+  legacy:
+    vehicle_by_core:
+      r1: MSRR.MSRRstartUpTo1MW
+      r9: MSRR.MSRRstartUpTo1MW9R
+  segmented:
+    needs_wrapper: true
+numerics:
+  stop_time_s: 151200.0
+  number_of_intervals: 151200
+  method: dassl
+  tolerance: 1.0e-6
+  max_step_size_s: 0.01
+structural:
+  numUhxSteps: 9
+forcing:
+  uhx_demand:
+    fission_fraction: 0.95
+    final_W: 1.0e6   # 1 MW TOTAL UHX demand (fission-eq 0.95e6 W); unlike to_100kw.yaml, whose final_W is the fission target / 0.95
+    ramp_start_s: 102600.0
+    delta_s: 3600.0
+    frac: [0.03, 0.08, 0.15, 0.26, 0.42, 0.62, 0.82, 1.0]
+display:
+  phase_boundaries_s: [43200.0, 68400.0, 86400.0, 101700.0]

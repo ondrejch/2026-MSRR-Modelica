@@ -1,0 +1,23 @@
+# Three-group ANS-94 decay-heat fit. Shared by 1R and 9R.
+# nom_frac is a rounded literal on purpose — NOT derived from DHYG/DHlamG
+# (sum(DHYG/DHlamG) = 0.0677414, stored as 0.068).
+num_groups:
+  value: 3
+  unit: "1"
+  doc: Number of decay-heat groups.
+  source: SMD_MSR_Modelica.Nuclear.DecayHeat
+DHYG:
+  value: [2.3751e-3, 8.7763e-5, 1.9596e-6]
+  unit: 1/s
+  doc: Decay-heat group yield coefficients.
+  source: MSRR.Components.MSRR1R decayHeat.DHYG
+DHlamG:
+  value: [0.09453, 0.004420, 8.6098e-5]
+  unit: 1/s
+  doc: Decay-heat group decay constants.
+  source: MSRR.Components.MSRR1R decayHeat.DHlamG
+nom_frac:
+  value: 0.068
+  unit: "1"
+  doc: Equilibrium decay-heat fraction of nominal power. Prompt fission carries 1 - nom_frac.
+  source: SMD_MSR_Modelica.Constants.nomDecayHeatFrac

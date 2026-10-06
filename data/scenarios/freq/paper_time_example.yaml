@@ -1,0 +1,13 @@
+schema_version: 1
+kind: frequency
+id: paper_time_example
+doc: Single-point time-domain frequency example used in the paper (0.1 rad/s, 1 pcm, 1.0 MW).
+applies_to: [msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10]
+powers_mw: [1.0]
+grid:
+  omega: [0.1]
+  unit: rad/s
+forcing:
+  ss_time_s: 2000.0
+  sin_mag_pcm: 1.0
+  sin_mag_mode: fixed

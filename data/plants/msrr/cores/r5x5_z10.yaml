@@ -1,0 +1,317 @@
+# 5x5 radial (25-channel, staggered triangular pitch) x 10-axial-segment
+# core. CLI --core_model r5x5_z10 (TASK-20260906-02; first cut 2026-09-06).
+# FIRST CUT: uniform 25-channel x 10-segment partition of the r1 lumped
+# totals (9R zone-partition precedent: per-channel/per-segment shares sum
+# to the plant totals). No measured radial power/flow profile exists in
+# the repository; refinement from measured data is a follow-up.
+# Coarsening anchor: the 25 identical 1/25 channels sharing one loop
+# reproduce the r1_10seg 1-channel x 10-segment core (per-channel sums =
+# the 1r10seg data: cellVol 0.04 m3, qFiss 0.093, qMod 0.007, kHT 0.1 per
+# segment; flow 1.0; hAnom 4565 W/K). The 25 channels are exact radial
+# replicas of one another under the uniform first-cut forcing: each carries
+# 1/25 of the flow and heat, and the 25-column sums reproduce the r1_10seg
+# data exactly (static partition sums are exact). In the 25-fold symmetric
+# state every radial neighbor delta-T is zero, so the radial conduction
+# fluxes vanish; the radial zero-flux argument is exact. K_mod = 86.0
+# W/(m.K) is the first non-zero product binding (decision 6, owner-approved
+# 2026-09-06). Axial graphite conduction remains active in the 5x5 model
+# (the product r1_10seg core sets K_mod = 0). On the inventory-consistent
+# effective lattice (physics review 2026-09-27; G_ax ~ 30.85 W/K per axial
+# link, the former 0.02 m placeholder gave ~0.09 W/K) it produces real
+# steady-state offsets against the 10-segment reference: the outlet
+# graphite tap sits lower by about 2.09 K on the PSAR-basis data (about
+# 0.511 K before TASK-20261001-01; the placeholder lattice gave about
+# 1.9e-3 K) and the segment-5 means sit higher by about 0.04-0.09 K, so dynamic
+# agreement between the 5x5 and r1_10seg models is tolerance-based, not
+# identity-based. The coarsening anchor is scoped
+# accordingly: the trajectory coincides for every quantity unaffected by
+# the added axial graphite conduction; the outlet-graphite tap differs by
+# the documented tolerance-based offset. The coarsening QA check itself
+# compares against a reference core with the matched summed axial
+# conductance, so it is an exact identity (TASK-20261001-01).
+# Core maturity, two axes (TASK-20260908-01 P2; split after the rev031
+# review): machine-readable labels validated at load time by
+# helpers/plant_config.py against owner-settable enums.
+#   maturity (implementation): reference_regression | discretization_study |
+#     exploratory_geometry
+#   physical_data_maturity: reviewed_design_basis | legacy_inherited |
+#     pending_source_review | synthetic
+maturity: exploratory_geometry
+physical_data_maturity: synthetic
+n_chan:
+  value: 25
+  unit: "1"
+  doc: Channel count (5 x 5 staggered triangular lattice, 25 channels).
+n_seg:
+  value: 10
+  unit: "1"
+  doc: Axial salt segments (10-segment axial resolution, as r1_10seg).
+cell_vol:
+  value:
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+    - [0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016, 0.0016]
+  unit: m3
+  doc: Salt volume per (channel, segment) cell; uniform 25 x 10 partition of the r1 total, every entry 0.4/250 = 0.0016 m3. Sum = 0.4 m3.
+  source: cores/r1.yaml cell_vol (uniform first-cut 25x10 partition)
+vol_graphite:
+  value: 1.758
+  unit: m3
+  doc: Graphite volume worth of heat capacity (vol_GN); inherited unchanged from r1. The product assembly binds vol_GN/nChan = 1.758/25 on SegmentedCore so the 250 PerCell moderator nodes sum to rho_grap*1.758 exactly (9R zone-partition precedent).
+  source: MSRR.Components.MSRR1R fuelchannel.vol_GN / SegmentedMSR.Reactors.volGN1R
+hAnom:
+  value: [182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6, 182.6]
+  unit: W/K
+  doc: Per-channel UA at pump FF = 1; uniform 25-channel partition of the r1 channel total (4565/25 = 182.6 W/K each; 9R per-region-UA-sums-to-total precedent). Sum = 4565 W/K.
+  source: cores/r1.yaml hAnom (uniform 25-channel partition)
+q_fiss:
+  value:
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+    - [0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372, 0.00372]
+  unit: "1"
+  doc: Direct fission heat split per salt cell; uniform 250-cell partition of the r1 total, every entry 0.93/250 = 0.00372. Sum = 0.93.
+  source: cores/r1.yaml q_fiss (uniform first-cut 25x10 partition)
+q_mod:
+  value:
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+    - [0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028, 0.00028]
+  unit: "1"
+  doc: Direct-to-moderator heat split per cell (product PerCell); uniform 250-cell partition of the r1 total, every entry 0.07/250 = 0.00028. Sum = 0.07 = kG.
+  source: cores/r1.yaml q_mod (uniform first-cut 25x10 partition); lumped kG = 0.07
+kG:
+  value: 0.07
+  unit: "1"
+  doc: Lumped single-graphite-node fission fraction (kG); inherited unchanged from r1.
+  source: MSRR.Components.MSRR1R fuelchannel.kG
+kHT:
+  value: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+  unit: "1"
+  doc: Convection split over the ten salt nodes (htFrac); as r1_10seg (uniform 0.1 per segment). Sum = 1.0.
+  source: cores/r1_10seg.yaml kHT
+flow_frac:
+  value: [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04]
+  unit: "1"
+  doc: Design flow split over the 25 channels; explicit uniform 1.0/25.0 = 0.04 per channel (owner decision 3, 2026-09-06). Sum = 1.0.
+IF:
+  value: [0.5, 0.5]
+  unit: "1"
+  doc: Fuel-node importance weights IF1, IF2. The product feedback API stays 2-node (segments 1-5 / 6-10 map to nodes 1 / 2, over all 25 channels).
+  source: MSRR.Components.MSRR1R react.IF1/IF2
+IG:
+  value: 1.0
+  unit: "1"
+  doc: Graphite importance weight; inherited unchanged from r1.
+  source: MSRR.Components.MSRR1R react.IG
+channel_geom:
+  Ac:
+    value: 0.0
+    unit: m2
+    doc: Channel flow area; owner-approved 0.0 for this first cut. r1.yaml/r1_10seg.yaml record Ac = 1.5882 m2 as provenance-only channel_geom metadata - Ac is emitted into the record but no assembly binds it, so there is no behavioral difference.
+  LF:
+    value: [0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575, 0.1575]
+    unit: m
+  ArF:
+    value: [3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172, 3.5172]
+    unit: m2
+    doc: Fuel-salt radiating interface area of the lumped fuel node (radPowFN1/radPowFN2 = e*SigSBK*ArF*(Tinf^4 - T^4) in the r1 FuelChannel). SHARED FULL-CORE GEOMETRY, NOT A PER-CHANNEL PARTITION - the value repeats the r1.yaml full-core per-fuel-node 3.5172 m2 unchanged (identical to r1_10seg.yaml), unlike cell_vol/q_fiss/q_mod/hAnom/flow_frac, which are 1/25 radial partitions; LF follows the same full-core-per-segment repeat. Emitted as SegmentedMSR_PlantData.CoreR5x5_Z10.ArF[nSeg] provenance only; no segmented assembly binds per-segment LF/ArF (emitter convention note), so there is no behavioral difference - the same treatment as Ac above. hAnom/ArF is therefore NOT a per-channel film coefficient; hAnom is already the per-channel UA in W/K (documented 2026-09-20, TASK-20260920-01 P17).
+    source: MSRR.Components.MSRR1R fuelchannel.ArF1/ArF2 (full-core per-fuel-node value), inherited unchanged from r1.yaml/r1_10seg.yaml; shared-full-core-geometry convention recorded 2026-09-20, TASK-20260920-01 P17
+  e:
+    value: 0.08
+    unit: "1"
+hAExp:
+  value: 0.33
+  unit: "1"
+  doc: Lumped fuel-channel film exponent (hA = hAnom * FF^hAExp); inherited unchanged from r1.
+  source: MSRR.Components.FuelChannel.hAExp
+k_mod:
+  value: 86.0
+  unit: W/(m.K)
+  doc: Graphite thermal conductivity (K_mod); bound on SegmentedCore by the product assembly with enableRadialMod = true - the first product map to bind a non-zero value (TASK-20260906-02 decision 6, first cut 2026-09-06, owner-approved). The value is the structured provenance below evaluated at the recorded temperature and rounded as recorded; the machine-readable fields recompute it.
+  source: "Structured provenance in the provenance block below (INL/EXT-16-38241 Rev. 1, McEligot et al. 2017, G-348 measured k(T) correlation evaluated at 570 degC); first cut 2026-09-06, owner-approved (TASK-20260906-02 decision 6)."
+  provenance:
+    kind: correlation
+    report: INL/EXT-16-38241 Rev. 1
+    authors: McEligot et al.
+    year: 2017
+    material_grade: G-348
+    grade_confirmed: false
+    grade_caveat: "The MSR-1 graphite grade is unconfirmed: the MSR-1/ACU MSRR PSAR (NRC ML22227A203, 611 pp, full-text scanned) publishes no graphite thermal conductivity and no graphite grade, so the G-348 reactor-grade fine-grain isotropic graphite correlation is a first-cut surrogate; grade confirmation is a follow-up card."
+    valid_range_degC: [20, 1000]
+    uncertainty_frac: 0.03
+    uncertainty_note: "Measured correlation, stated ~3% uncertainty."
+    correlation:
+      form: "k(T) = c0 + c1*T + c2*T^2, T in degC, k in W/(m.K)"
+      coefficient_units: "c0: W/(m.K); c1: W/(m.K)/degC; c2: W/(m.K)/degC^2"
+      c0: 136.0
+      c1: -0.1092
+      c2: 3.772e-5
+    evaluation_temperature_degC: 570
+    evaluation_temperature_note: "Representative graphite temperature (TG setpoint; paper linearization band 550-650 degC)."
+    result_unrounded: 86.011228
+    result_rounded: 86.0
+    rounding_step: 0.1
+    rounding_note: "k_mod stores the correlation result rounded to the nearest rounding_step W/(m.K); result_unrounded records the raw evaluation."
+# Lattice metadata for the SegmentedMSR bind. These do NOT currently
+# set inventories; cell_vol and vol_graphite do.
+channel_map:
+  pitch_type: Triangular
+  pitch:
+    value: 0.266824916475
+    unit: m
+    doc: EFFECTIVE lattice pitch (staggered triangular) derived from the core inventory (physics review 2026-09-27; replaces the 0.02 m placeholder inherited from r1). Each of the 25 model channels lumps several physical channels, so its lattice cell must hold that channel's graphite and salt over the modeled height H = nSeg*dz = 1.4 m - cellA = (vol_graphite/25 + sum_j cell_vol[c,j])/H = (0.07032 + 0.016)/1.4 m2 = (sqrt(3)/2)*p^2. With chanR below, the moderator axial-conduction section map.modAnnulusArea = cellA - pi*chanR^2 = vol_graphite/(25*H) = 0.0502286 m2, consistent with the moderator heat capacity (the 0.02 m placeholder gave 1.4535e-4 m2, ~346x too small, so K_mod = 86 carried almost no axial conduction). G_ck = K_mod*dz/sqrt(3) stays pitch-independent.
+  dz:
+    value: 0.14
+    unit: m
+    doc: Axial pitch per segment (10 x 0.14 m = 1.4 m, as r1_10seg). Does not control heat capacity.
+  chanR:
+    value: [0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509, 0.060314403509]
+    unit: m
+    doc: EFFECTIVE channel radius (25 identical entries) derived from the salt inventory (physics review 2026-09-27; replaces the 0.008 m placeholder) - pi*chanR^2*H = sum_j cell_vol[c,j] = 0.016 m3 per channel over H = 1.4 m, so chanR = sqrt(0.016/(pi*1.4)). Packing holds (2*chanR <= pitch). Thermal inventories still come from cell_vol and vol_graphite; the pitch/chanR pair only makes the geometric conduction section consistent with them.
+  xy:
+    value:
+    - [0.0, 0.0]
+    - [0.266824916475, 0.0]
+    - [0.533649832951, 0.0]
+    - [0.800474749426, 0.0]
+    - [1.067299665901, 0.0]
+    - [0.133412458238, 0.23107715603]
+    - [0.400237374713, 0.23107715603]
+    - [0.667062291188, 0.23107715603]
+    - [0.933887207664, 0.23107715603]
+    - [1.200712124139, 0.23107715603]
+    - [0.0, 0.462154312061]
+    - [0.266824916475, 0.462154312061]
+    - [0.533649832951, 0.462154312061]
+    - [0.800474749426, 0.462154312061]
+    - [1.067299665901, 0.462154312061]
+    - [0.133412458238, 0.693231468091]
+    - [0.400237374713, 0.693231468091]
+    - [0.667062291188, 0.693231468091]
+    - [0.933887207664, 0.693231468091]
+    - [1.200712124139, 0.693231468091]
+    - [0.0, 0.924308624121]
+    - [0.266824916475, 0.924308624121]
+    - [0.533649832951, 0.924308624121]
+    - [0.800474749426, 0.924308624121]
+    - [1.067299665901, 0.924308624121]
+    unit: m
+    doc: Channel centers [m] on the 5x5 staggered triangular lattice (decision 2). The centered construction (even rows (i=0,2,4) x in (-2p,-p,0,p,2p), odd rows (i=1,3) x in (-3p/2,-p/2,p/2,3p/2,5p/2)) is stored translated by +2p in x so all coordinates are non-negative (the shared data envelope rejects negative 'm' values); the translation is physics-inert because the Modelica neighborIndices match is distance-based. Row i (i=0..4) at y = i*p*sin(60 deg), row-major channel order; stored even rows x in (0, p, 2p, 3p, 4p), stored odd rows x in (p/2, 3p/2, 5p/2, 7p/2, 9p/2), p = the effective pitch above (0.266824916475 m; the 2026-09-27 rescale of the former 0.02 m placeholder lattice by p/0.02 preserves the distance-based neighbor table exactly). Neighbor table (independently re-derived 2026-09-06), 56 undirected edges = 112 of 150 directed slots, per-degree channel counts for degrees 2, 3, 4, 5, 6 are 2, 5, 6, 3, 9.
+trim:
+  TF1:
+    value: 570.0
+    unit: degC
+    doc: Fuel-node-1 trim setpoint; applies to segments 1-5 (5+5 mapping over all 25 channels). Inherited from r1; segmented emit adds 273.15 K.
+    source: MSRR.R1MSRRuhx.fuelTempSetPointNode1
+  TF2:
+    value: 580.41
+    unit: degC
+    doc: Fuel-node-2 trim setpoint; applies to segments 6-10 (5+5 mapping over all 25 channels). Inherited from r1.
+    source: MSRR.R1MSRRuhx.fuelTempSetPointNode2
+  TG:
+    value: 570.0000028
+    unit: degC
+    doc: Graphite trim setpoint; applies to all 250 graphite cells. Inherited from r1.
+    source: MSRR.R1MSRRuhx.graphiteTempSetPoint
+heat_loss_tinf:
+  value: 550.0
+  unit: degC
+  doc: Ambient trench temperature when heaters are off (startup heat-loss cases); inherited unchanged from r1.
+  source: MSRR.R1MSRRuhx.heatLossTinf
+# Segmented-only qualified steady state (physics review 2026-09-27): the
+# per-cell temperatures of SegmentedMSR.Reactors.R5x5Z10MSRRuhxTrimThermalSS at 1 MW, nominal
+# flow, with temperature feedback referenced to the {reference_temperature}
+# isothermal zero-power critical state (the lumped setpoint-table convention).
+# The segmented rigs bind their FixedStart core temperatures AND their
+# feedback setpoints (the tap averages of these arrays) to this block, so they
+# start at the steady state with zero initial feedback. Regenerate with
+#   python3.12 -m helpers.segmented_trim_levels --write
+# Not read by the lumped MSRR.mo package.
+segmented_steady_state:
+  power:
+    value: 1.0
+    unit: "1"
+    doc: Relative power level of the steady state (segmented runs require powerLevel = 1).
+    source: helpers.segmented_trim_levels
+  reference_temperature:
+    value: 570.0
+    unit: degC
+    doc: Isothermal zero-power critical reference state; the feedback-weighted core temperature equals it at every power (lumped core/init convention).
+    source: core/init/setpoints_1r.csv 1e-5 MW row (570 degC isothermal)
+  T_fuel:
+    value: [553.0748863684, 555.4093305517, 557.7381390964, 560.0641947661, 562.3887378169, 564.7121096562, 567.0339623032, 569.3530619789, 571.6665761420, 573.9684320210]
+    unit: degC
+    doc: Qualified steady-state fuel-salt cell temperatures, per axial segment 1..10, identical for all 25 channels (the uniform first-cut forcing keeps the channels exact radial replicas).
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R5x5Z10MSRRuhxTrimThermalSS)
+  T_mod:
+    value: [569.4472783590, 570.6766654820, 572.4814600774, 574.5515474266, 576.7354438833, 578.9499139171, 581.1305087615, 583.1936311692, 584.9877921988, 586.2056354313]
+    unit: degC
+    doc: Qualified steady-state moderator (graphite) node temperatures, same layout as T_fuel.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R5x5Z10MSRRuhxTrimThermalSS)

@@ -1,0 +1,38 @@
+schema_version: 1
+kind: startup
+id: segmented_simplified
+doc: >
+  Current segmented --scenario startup mapping (Ambiguity A'). Continuous
+  1e8 n/s source from t=0 and a two-element reactivity hold (-3500 pcm at
+  t=0, 0 pcm at t=4000 s) riding the trim-rig array defaults. Not the
+  legacy 29-step / 8-window schedule.
+applies_to: [msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10]
+package_support:
+  segmented:
+    base_vehicle: trim_rig
+    needs_wrapper: false
+numerics:
+  stop_time_s: 108000.0
+  number_of_intervals: 1080000
+structural:
+  numSourceSteps: 1
+  numExternalReactivitySteps: 2
+forcing:
+  powerLevel:
+    value: 1.0
+    unit: "1"
+    doc: Kept at the rig default so frozen rhoTrim applies unchanged.
+  sine_pcm:
+    value: 0.0
+    unit: pcm
+  source:
+    times_s: [0.0]
+    amplitudes_n_s: [1.0e8]
+  reactivity_pcm:
+    times_s: [0.0, 4000.0]
+    amplitudes: [-3500.0, 0.0]
+  pump:
+    freeConvFF:
+      value: 1.0
+      unit: "1"
+      doc: Pumps pinned to forced circulation on the segmented path.

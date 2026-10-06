@@ -1,0 +1,3704 @@
+{
+ "campaign_id": "psar-2026-10",
+ "composition": [
+  {
+   "cases": [
+    "MSRR_freq0.1"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "frequency_time_example",
+   "fingerprint_ok": 1,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 1
+  },
+  {
+   "cases": [
+    "MSRR_freq0.1"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "frequency_time_example",
+   "fingerprint_ok": 1,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 1
+  },
+  {
+   "cases": [
+    "MSRR_ss_0p00001",
+    "MSRR_ss_0p000019952623149688793",
+    "MSRR_ss_0p000039810717055349715",
+    "MSRR_ss_0p00007943282347242818",
+    "MSRR_ss_0p00010",
+    "MSRR_ss_0p0001584893192461114",
+    "MSRR_ss_0p00031622776601683794",
+    "MSRR_ss_0p0006309573444801932",
+    "MSRR_ss_0p00100",
+    "MSRR_ss_0p0012589254117941673",
+    "MSRR_ss_0p0025118864315095803",
+    "MSRR_ss_0p005011872336272723",
+    "MSRR_ss_0p01000",
+    "MSRR_ss_0p10000",
+    "MSRR_ss_0p20000",
+    "MSRR_ss_0p40000",
+    "MSRR_ss_0p60000",
+    "MSRR_ss_0p80000",
+    "MSRR_ss_1p00000",
+    "MSRR_ss_1p20000"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint_ok": 22,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "plant": "msrr",
+   "runs": 22,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 22
+  },
+  {
+   "cases": [
+    "MSRR_ss_0p00001",
+    "MSRR_ss_0p000019952623149688793",
+    "MSRR_ss_0p000039810717055349715",
+    "MSRR_ss_0p00007943282347242818",
+    "MSRR_ss_0p00010",
+    "MSRR_ss_0p0001584893192461114",
+    "MSRR_ss_0p00031622776601683794",
+    "MSRR_ss_0p0006309573444801932",
+    "MSRR_ss_0p00100",
+    "MSRR_ss_0p0012589254117941673",
+    "MSRR_ss_0p0025118864315095803",
+    "MSRR_ss_0p005011872336272723",
+    "MSRR_ss_0p01000",
+    "MSRR_ss_0p10000",
+    "MSRR_ss_0p20000",
+    "MSRR_ss_0p40000",
+    "MSRR_ss_0p60000",
+    "MSRR_ss_0p80000",
+    "MSRR_ss_1p00000",
+    "MSRR_ss_1p20000"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint_ok": 22,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "plant": "msrr",
+   "runs": 22,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 22
+  },
+  {
+   "cases": [
+    "startUp_to1MW"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "startup",
+   "fingerprint_ok": 1,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRstartUpTo1MW",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "startUp_to1MW_9r"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "startup",
+   "fingerprint_ok": 1,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRstartUpTo1MW9R",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "flow_100pct",
+    "flow_33pct",
+    "flow_66pct",
+    "step_0p1dol",
+    "step_0p5dol",
+    "step_100pcm",
+    "step_10pcm",
+    "step_1dol",
+    "step_2dol"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint_ok": 9,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "plant": "msrr",
+   "runs": 9,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "uhx_trip"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint_ok": 1,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxTripThermalSS",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "flow_100pct",
+    "flow_33pct",
+    "flow_66pct",
+    "step_0p1dol",
+    "step_0p5dol",
+    "step_100pcm",
+    "step_10pcm",
+    "step_1dol",
+    "step_2dol"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint_ok": 9,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "plant": "msrr",
+   "runs": 9,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "uhx_trip"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint_ok": 1,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "model_name": "MSRR.MSRRuhxTrip9RThermalSS",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "startUp_to1MW_9r"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "startup",
+   "fingerprint_ok": 1,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "model_name": "MSRR.MSRRstartUpTo1MW9R",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "flow_100pct",
+    "flow_33pct",
+    "flow_66pct",
+    "step_0p1dol",
+    "step_0p5dol",
+    "step_100pcm",
+    "step_10pcm",
+    "step_1dol",
+    "step_2dol"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint_ok": 9,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "plant": "msrr",
+   "runs": 9,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "uhx_trip"
+   ],
+   "certified": 0,
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint_ok": 1,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "model_name": "MSRR.MSRRuhxTripThermalSS",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "flow_100pct",
+    "flow_33pct",
+    "flow_66pct",
+    "step_0p1dol",
+    "step_0p5dol",
+    "step_100pcm",
+    "step_10pcm",
+    "step_1dol",
+    "step_2dol"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint_ok": 9,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "plant": "msrr",
+   "runs": 9,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation_passed": 0
+  },
+  {
+   "cases": [
+    "uhx_trip"
+   ],
+   "certified": 0,
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint_ok": 1,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "model_name": "MSRR.MSRRuhxTrip9RThermalSS",
+   "plant": "msrr",
+   "runs": 1,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation_passed": 0
+  }
+ ],
+ "disposition": {
+  "file": "rebaseline-evidence/psar-2026-10/drift-validation-2026-09-28-disposition.md",
+  "sha256": "99d0dbb35e46672021d67ca492b5b3262cc331d3d8f1215b29ac91c6926a894d",
+  "text": "# Disposition of the drift-regime validation (matrix `drift-validation-2026-09-28`)\n\n**What was checked.** The drift-regime estimator that the low-power frequency protocol uses (1e-5 to 1e-3 MW) was compared, on an immutable 66-cell matrix at commit `38c8c95` (2026-09-28 to 2026-09-30), against (a) a forced full-discard reference estimate and (b) a doubled drift window, at the boundary, two interior and the top frequency points of each power and core: 24 points, 1R and 9R. Tolerances: |dG/G| <= 0.5 %, |dphi| <= 0.5 deg (`drift_validation_report_strict.json`, `helpers/paper-rerun/compare_drift_validation.py`).\n\n**What the report says.** 19 points pass, 5 are inconclusive, 0 fail, 0 missing; overall status `inconclusive` (the report does not pass). The five inconclusive points are the 1e-5 MW boundary and interior points (1R: boundary, interior1, interior2; 9R: boundary, interior1). At each of them the drift-versus-full comparison is inconclusive because its full-discard reference estimate did not converge (`both_converged: false`): the unconverged side is the reference, not the drift estimate. The window-doubling comparison passes at all 24 points (worst |dG/G| 0.17 %, worst |dphi| 0.073 deg). A separate lock-in re-estimate on the full-discard records (`drift_lockin_ref_output.txt`) agrees with the drift estimates within 0.07 % in gain and 0.08 deg in phase at the inconclusive points.\n\n**Disposition (project, 2026-10-05; owner to confirm).** The drift-regime estimates stand as the published low-power values, with the window-doubling result and the lock-in re-estimate as their independent support. The five 1e-5 MW drift-versus-full comparisons are recorded as inconclusive comparisons whose reference did not converge, not as failures of the estimator and not as a pass; no point is excluded. This record supports the protocol of campaign `psar-2026-10-01` (same estimator and settle rule) and was produced at commit `38c8c95`; it is not a rerun of that campaign, and the campaign's 24 frequency verification reports are its acceptance evidence.\n\nSource files (digests in the package manifest): `00runs/drift-validation-2026-09-28/drift_validation_report_strict.json`, `.md`, `drift_validation_matrix.json`, `drift_lockin_ref_output.txt`, `drift_validation_drift-validation-2026-09-28.json` (dispatch state)."
+ },
+ "exporter": {
+  "git_commit": "b58eceef37f03df170d58a9ed9b40101c2d59e9f\n",
+  "module": "helpers.campaign_evidence",
+  "module_sha256": "1b881434a4638c3ab6778cd4b7b5b132a8aa6ad5450b72dcfc52bf64a2e86e91",
+  "python": "3.12.3",
+  "read_only": true
+ },
+ "figures": {
+  "article": [
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p00001.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p00001.png",
+    "sha256": "71c16fb03baf1f996d90c67949e19b800cfe3c15bd096a65fd0c9528e67349f7"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p0001.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p0001.png",
+    "sha256": "10f9db8f3801f476b79b29ac5d2e00579fa52dafcd0611a565294d6a7a99f6ff"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p001.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p001.png",
+    "sha256": "0f57547e3dd0f9bc31a906cf33ae2d8f8aee38dc48b53d10b8106b1617e97a6b"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p01.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p01.png",
+    "sha256": "64539d4f9619e03119597e0b002adcdd51a41d3263f9353666bf6ca6d01b247e"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p1.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p1.png",
+    "sha256": "a2546623e37f22ab5afe35444e4325a8db942dc13a250f476d72a986d8e4d91a"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p2.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p2.png",
+    "sha256": "c8462009b460f348e3135a695e7a6ec8ee7a1cda9b4d1572c701f77452846d35"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p4.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p4.png",
+    "sha256": "000b58982274fdde3b3face4eef66c0e52af2bda34a299cd7021b9ca1dccbfa5"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p6.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p6.png",
+    "sha256": "b346257a7fd57971b2ba0e3c360dd9fc0df9203511222032f80b407b7affc20d"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p8.png",
+    "figure": "BodePlot_compare_1r_9r_power_0p8.png",
+    "sha256": "d9419ae0aad82c6956175cbe6bc8217cce85c4d4fdb85c2d7cd9e41f14a6acf8"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_1.png",
+    "figure": "BodePlot_compare_1r_9r_power_1.png",
+    "sha256": "4b59be6a56c8968850b502d14b4d07706b47bee17725132ff134692df152950a"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_1p2.png",
+    "figure": "BodePlot_compare_1r_9r_power_1p2.png",
+    "sha256": "5a8abe97350ab73afc857e2adc46883663df4cbe094dad80a12ff3167ea5d744"
+   },
+   {
+    "campaign_copy": null,
+    "figure": "MSRR_flow_diagram.png",
+    "sha256": "59d440b27db66a336892280298bf182ddad964792242be0136699ec34519f997"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/frequency/MSRR_freq_nominal_time_example.png",
+    "figure": "MSRR_freq_nominal_time_example.png",
+    "sha256": "480a1872a34bb58576e2e9914080da201d7814b8c21e17b3df9a1e3883c87a39"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/transients/MSRR_uhx_trip.png",
+    "figure": "MSRR_uhx_trip.png",
+    "sha256": "7ef81ad266ff9da3d793618fe6b62fa96df985cff898da693ce31a7a21cb52d0"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-02/figures/transients/MSRRstep_flow.png",
+    "figure": "MSRRstep_flow.png",
+    "sha256": "429811e8bc39414bfcd61b64fa0714a8cbcdf5c2163dec1353c70a5c70c2fa77"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-02/figures/transients/MSRRstep_nominal.png",
+    "figure": "MSRRstep_nominal.png",
+    "sha256": "7985a272b4d0ba69453628a0b1b1c5a18c223f050a467714aa09b92afb4c38fe"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/startup/startup_phase1to4_1r.png",
+    "figure": "startup_phase1to4_1r.png",
+    "sha256": "b31ac98726800470f0cdbdddc583569dc6a93edd889f254baf40d28f744a4a85"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-02/figures/startup/startup_phase1to4_9r.png",
+    "figure": "startup_phase1to4_9r.png",
+    "sha256": "1f5baad0f5c149dec8bded4f9183ab807a01bf6a24f591b611048fc50cec41b2"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/startup/startup_phase1to4_signedlog_1r.png",
+    "figure": "startup_phase1to4_signedlog_1r.png",
+    "sha256": "2202829004551f1592f7a30dac26bc354e9dd6160172a89ef4cc2e1ab5ec21d2"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-02/figures/startup/startup_phase1to4_signedlog_9r.png",
+    "figure": "startup_phase1to4_signedlog_9r.png",
+    "sha256": "6771bec68dee5c61f38907d32b7cc4b31e8220d6a13f11b633a7e792fbb133ba"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-01/figures/startup/startup_to1MW_1r.png",
+    "figure": "startup_to1MW_1r.png",
+    "sha256": "f1bdb22401510409077255afb74e0558a7777f58417d90bea64507648b904ec0"
+   },
+   {
+    "campaign_copy": "paper-rerun-psar-2026-10-02/figures/startup/startup_to1MW_9r.png",
+    "figure": "startup_to1MW_9r.png",
+    "sha256": "f54dda8774c15526b797a6c330b4728d7f463cdc49d27f5274179186159f9cf2"
+   }
+  ],
+  "article_dir": "latex/MSRR_journal_article_v3/figs",
+  "article_matched": 21,
+  "article_scripts": [],
+  "article_total": 22,
+  "campaign": [
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p00001.png",
+    "sha256": "71c16fb03baf1f996d90c67949e19b800cfe3c15bd096a65fd0c9528e67349f7"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p0001.png",
+    "sha256": "10f9db8f3801f476b79b29ac5d2e00579fa52dafcd0611a565294d6a7a99f6ff"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p001.png",
+    "sha256": "0f57547e3dd0f9bc31a906cf33ae2d8f8aee38dc48b53d10b8106b1617e97a6b"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p01.png",
+    "sha256": "64539d4f9619e03119597e0b002adcdd51a41d3263f9353666bf6ca6d01b247e"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p1.png",
+    "sha256": "a2546623e37f22ab5afe35444e4325a8db942dc13a250f476d72a986d8e4d91a"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p2.png",
+    "sha256": "c8462009b460f348e3135a695e7a6ec8ee7a1cda9b4d1572c701f77452846d35"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p4.png",
+    "sha256": "000b58982274fdde3b3face4eef66c0e52af2bda34a299cd7021b9ca1dccbfa5"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p6.png",
+    "sha256": "b346257a7fd57971b2ba0e3c360dd9fc0df9203511222032f80b407b7affc20d"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_0p8.png",
+    "sha256": "d9419ae0aad82c6956175cbe6bc8217cce85c4d4fdb85c2d7cd9e41f14a6acf8"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_1.png",
+    "sha256": "4b59be6a56c8968850b502d14b4d07706b47bee17725132ff134692df152950a"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/BodePlot_compare_1r_9r_power_1p2.png",
+    "sha256": "5a8abe97350ab73afc857e2adc46883663df4cbe094dad80a12ff3167ea5d744"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/frequency/MSRR_freq_nominal_time_example.png",
+    "sha256": "480a1872a34bb58576e2e9914080da201d7814b8c21e17b3df9a1e3883c87a39"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/startup/startup_phase1to4_1r.png",
+    "sha256": "b31ac98726800470f0cdbdddc583569dc6a93edd889f254baf40d28f744a4a85"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/startup/startup_phase1to4_9r.png",
+    "sha256": "1adc477de1bccd08dc8ec0d7cf24afab1450545303016af91a119b9cce44537a"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/startup/startup_phase1to4_signedlog_1r.png",
+    "sha256": "2202829004551f1592f7a30dac26bc354e9dd6160172a89ef4cc2e1ab5ec21d2"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/startup/startup_phase1to4_signedlog_9r.png",
+    "sha256": "a9fdf0122f6adb6a34d0b1c4f85b1e00cef565d394076c24c428f02a7db00307"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/startup/startup_to1MW_1r.png",
+    "sha256": "f1bdb22401510409077255afb74e0558a7777f58417d90bea64507648b904ec0"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/startup/startup_to1MW_9r.png",
+    "sha256": "feca5a6712a905e18a01c42da3abcdbfcf745574a0ac53c959bc408fe60a13fb"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/transients/MSRR_uhx_trip.png",
+    "sha256": "7ef81ad266ff9da3d793618fe6b62fa96df985cff898da693ce31a7a21cb52d0"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/transients/MSRRstep_flow.png",
+    "sha256": "6b9b1c6e1ea3b34f326dcc28dd236d0be666be721e9e1549693adadd600b618c"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-01/figures/transients/MSRRstep_nominal.png",
+    "sha256": "e048399566bcbc3267d3417a5a06391ace164e9c5ed72447e263f707f27cf61a"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-02/figures/startup/startup_phase1to4_9r.png",
+    "sha256": "1f5baad0f5c149dec8bded4f9183ab807a01bf6a24f591b611048fc50cec41b2"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-02/figures/startup/startup_phase1to4_signedlog_9r.png",
+    "sha256": "6771bec68dee5c61f38907d32b7cc4b31e8220d6a13f11b633a7e792fbb133ba"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-02/figures/startup/startup_to1MW_9r.png",
+    "sha256": "f54dda8774c15526b797a6c330b4728d7f463cdc49d27f5274179186159f9cf2"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-02/figures/transients/MSRR_uhx_trip.png",
+    "sha256": "7ef81ad266ff9da3d793618fe6b62fa96df985cff898da693ce31a7a21cb52d0"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-02/figures/transients/MSRRstep_flow.png",
+    "sha256": "429811e8bc39414bfcd61b64fa0714a8cbcdf5c2163dec1353c70a5c70c2fa77"
+   },
+   {
+    "figure": "paper-rerun-psar-2026-10-02/figures/transients/MSRRstep_nominal.png",
+    "sha256": "7985a272b4d0ba69453628a0b1b1c5a18c223f050a467714aa09b92afb4c38fe"
+   }
+  ]
+ },
+ "kind": "msrr-campaign-evidence",
+ "records": [
+  {
+   "file": "00runs/drift-validation-2026-09-28/drift_validation_report_strict.json",
+   "kind": "drift-regime-validation-report",
+   "sha256": "29a3710f676b521b3befabeb14071af84adc5bb0a0c2e0b788986c67b9c4a416",
+   "summary": {
+    "counts": {
+     "fail": 0,
+     "inconclusive": 5,
+     "missing": 0,
+     "pass": 19,
+     "points": 24
+    },
+    "created_utc": "2026-09-30T02:10:43+00:00",
+    "matrix_campaign_id": "drift-validation-2026-09-28",
+    "matrix_commit": "38c8c95ad7464cfd816862cb2c33f469cd8e20b4",
+    "max_drift_operating_point_shift_overall": 0.08746065936938052,
+    "pass": false,
+    "points": [
+     {
+      "drift_vs_full": "inconclusive",
+      "point": "1r-0p00001-boundary",
+      "status": "inconclusive",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "inconclusive",
+      "point": "1r-0p00001-interior1",
+      "status": "inconclusive",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "inconclusive",
+      "point": "1r-0p00001-interior2",
+      "status": "inconclusive",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": null,
+      "point": "1r-0p00001-top",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "1r-0p0001-boundary",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "1r-0p0001-interior1",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "1r-0p0001-interior2",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": null,
+      "point": "1r-0p0001-top",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "1r-0p001-boundary",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "1r-0p001-interior1",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "1r-0p001-interior2",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": null,
+      "point": "1r-0p001-top",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "inconclusive",
+      "point": "9r-0p00001-boundary",
+      "status": "inconclusive",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "inconclusive",
+      "point": "9r-0p00001-interior1",
+      "status": "inconclusive",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p00001-interior2",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": null,
+      "point": "9r-0p00001-top",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p0001-boundary",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p0001-interior1",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p0001-interior2",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": null,
+      "point": "9r-0p0001-top",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p001-boundary",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p001-interior1",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": "pass",
+      "point": "9r-0p001-interior2",
+      "status": "pass",
+      "window_doubling": "pass"
+     },
+     {
+      "drift_vs_full": null,
+      "point": "9r-0p001-top",
+      "status": "pass",
+      "window_doubling": "pass"
+     }
+    ],
+    "status": "inconclusive",
+    "tolerances": {
+     "gain_rel_diff": 0.005,
+     "phase_diff_deg": 0.5
+    }
+   }
+  },
+  {
+   "file": "00runs/drift-validation-2026-09-28/drift_validation_matrix.json",
+   "kind": "drift-validation-matrix",
+   "sha256": "ba20ae5cc8a22d19a885a01c7cb8f67b1f02b65281f2ef65a8dbb90b43301559"
+  },
+  {
+   "file": "00runs/drift-validation-2026-09-28/drift_lockin_ref_output.txt",
+   "kind": null,
+   "sha256": "c89dada2df1f437cdb0b4db15d5f064f6e0c3e3d57f41e7d38fd331c9ef7e912"
+  },
+  {
+   "file": "00runs/drift-validation-2026-09-28/drift_validation_drift-validation-2026-09-28.json",
+   "kind": null,
+   "sha256": "34f83bf2ce130805127a7da95b298ce48a53dc8df94d1a54fee0306db0b7311e"
+  }
+ ],
+ "run_totals": {
+  "certified": 0,
+  "commits": [
+   "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "fb804dcb885d46137954a4c47c084a96915fb775"
+  ],
+  "fingerprint_ok": 89,
+  "runs": 89,
+  "sweep_points": 0,
+  "sweep_points_validated": 0,
+  "validation_missing": 43,
+  "validation_missing_by_family": [
+   "paper-rerun-psar-2026-10-01/startup",
+   "paper-rerun-psar-2026-10-01/transients",
+   "paper-rerun-psar-2026-10-02/startup",
+   "paper-rerun-psar-2026-10-02/transients"
+  ],
+  "validation_passed": 46
+ },
+ "runs": [
+  {
+   "case": "MSRR_freq0.1",
+   "core_model": "1r",
+   "family": "frequency_time_example",
+   "fingerprint": "c3ecebc39d1715c50f487b6facfbcf22204c19302188dfa75f25a76b714bd175",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "freq_time_example/1r/power_1/freq0.1/MSRR_freq0.1_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": {
+    "campaign_id": "sweep-c8922cbd9f524081abeb9dd67389bbcf",
+    "fingerprint": "5ae63034e7183c0aec77b7e0d5792a73a5702b76b746f041a59acaaad057e64d",
+    "schema_version": 1
+   },
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 100005,
+    "passed": true,
+    "result_sha256": "5faef6278d3d53c6b81f15f0d1cfb47ef02b16bf5bbf2f2f65f74e6db961b52f"
+   }
+  },
+  {
+   "case": "MSRR_freq0.1",
+   "core_model": "9r",
+   "family": "frequency_time_example",
+   "fingerprint": "a075949476c02f55b6a03958c3e4f99e1b6a61aa0e4fee62a8ccf72ca65babbe",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "freq_time_example/9r/power_1/freq0.1/MSRR_freq0.1_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": {
+    "campaign_id": "sweep-bf21e50530044c85bad01b2daced4d43",
+    "fingerprint": "2ee0f71c3e40fe50ad0a05e196b143373f880b712cf5090e2df58d60cd0564d2",
+    "schema_version": 1
+   },
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 100005,
+    "passed": true,
+    "result_sha256": "3897a2c63a92739d4394add2016f1791ed2b321a48d61435498bbf8f776bd6c5"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00001",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "3b9e0f3865e3fa18490616ef6e419a85bd2d7634546f9551e8a80dccbf1b0fd2",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p00001/MSRR_ss_0p00001_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 100000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 20004,
+    "passed": true,
+    "result_sha256": "60da7533e030437efb1d792c08bdf26b5134db3a75d909e4ea6905c862a50846"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p000019952623149688793",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "c19a45a03958b3542f996995e8a91e7b7ab393bb717a87346672ac2e0880d5fb",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p000019952623149688793/MSRR_ss_0p000019952623149688793_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "1de212ca5f923b4fe25f0003b8280ab02897d8e6991227df446061871be9fddf"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p000039810717055349715",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "5f3fdbb9776614a4cadbff1fa8a8f4248a6d099cc64e7fdaaaf018b65881a70d",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p000039810717055349715/MSRR_ss_0p000039810717055349715_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "e6170d1e0f1a1b83e9a88278568e8395b3e167df9773fe4824edfbf1ceb18d37"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00007943282347242818",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "c28f23e266a6f908143c1d6bef43e9c3c9990041b4b8f62fb83d7015a2c8e912",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p00007943282347242818/MSRR_ss_0p00007943282347242818_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "c094c12bc1f3c8ee5712e1dda79a5f24fef75d7ab6d2714cf247f43df1c9aed5"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0001584893192461114",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "ff3696fdd4a62da8d766a593581840d96fc00e187efc15d45a123e1023024050",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p0001584893192461114/MSRR_ss_0p0001584893192461114_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "ff8fd43448b87fcef58bd129d388b65d0cd0a7483eb8f0b93553772583785cc1"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00031622776601683794",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "6968db8738cfa3b42d22cd9e24b8e3e5b834e785f39caacc7cad58c351e2cc1d",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p00031622776601683794/MSRR_ss_0p00031622776601683794_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "c512cb7f1c171e78de34856d427e1b2600cea57adf5db5db6c1c0d077df47ba9"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0006309573444801932",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "bebad68f1605a80414321b59064004ab59386e49c81f2d17f1b8817c87e6cb8d",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p0006309573444801932/MSRR_ss_0p0006309573444801932_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "e39834f18b2733013af1a4a35e1112fe0f19d74da5fd14cc837b8df9841e3235"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0012589254117941673",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "43e79a57f5f7edf9bd80f854aedcef7eb626580ecd8e03e5772d9bbf03249440",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p0012589254117941673/MSRR_ss_0p0012589254117941673_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 300000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 3000004,
+    "passed": true,
+    "result_sha256": "cd6e76d3220c262c61ea93bc18a978f1415c96b868d95b464c119a2ddbfe4666"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0025118864315095803",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "7cf28e94df816c00d3b2b42f610d40ec3230e4b10a1c8af3dcd5c3fa0a366759",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p0025118864315095803/MSRR_ss_0p0025118864315095803_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "09cf43163ec483bbf3b2485bf25aced0e98498fc36a52d170c7643bea0c89209"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p005011872336272723",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "a838f995baee224a55218ae48fb0120ef4f5ff5279d0b7ad99558139090cffdb",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p005011872336272723/MSRR_ss_0p005011872336272723_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "4237d14f22f2d0710cdbb85e2fbb8518540c2a05b2423d5837b887c244ecadcd"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p01000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "307a059a7ec97a3b580873b9392c0018880e95c17dcf21d47c6386beee207ab9",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_1r/power_0p01000/MSRR_ss_0p01000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "4abc1e2eb9d21d2476c262f9f2b069d2c4d6baf06a1651fcf30dcf645fe88326"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00001",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "d8a0f13de291ef19a23cb07e89b1a5e833506a9be21154c3ae22085c0222d7c2",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p00001/MSRR_ss_0p00001_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 100000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 20004,
+    "passed": true,
+    "result_sha256": "3f13927ba2e04cbd8f6088feff02e40df9c4df86487c8965b97afa096dd58087"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p000019952623149688793",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "fc7254e1f515535be78e5e667a1fcd6cf30ad89d94c1bd64a2f803999b69e94c",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p000019952623149688793/MSRR_ss_0p000019952623149688793_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "4c324a668dd5badbe65a2f56bb60667f8f203d0fd97469652aceb83cac091c6f"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p000039810717055349715",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "62a4a4789a812da296c2d0b33a2ccbca7c5f97e2519b1789f39d1feaac6c93c8",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p000039810717055349715/MSRR_ss_0p000039810717055349715_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "464c243a99cbbf7d246a06f299817c8d0f72189dde9c2f5ea0ec50e1221ca3e7"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00007943282347242818",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "0a5642feba4a8379325c2b95a7aca8fc952057af33d4d71ab15d30bdaaba8f02",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p00007943282347242818/MSRR_ss_0p00007943282347242818_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "c193372e072f75c9507020f7187749978088ebdb16af9e35f4d2f04a11e51bfd"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0001584893192461114",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "dce11360eeec1e6fc3e9b45dc7250a27b1c40aadd515f66b28802b2ca7e54dad",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p0001584893192461114/MSRR_ss_0p0001584893192461114_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "c49f9c0ffb893cc39ea96bf0172e3c3e09f47b0bd3165da46dc27c7094c01bce"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00031622776601683794",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "281dca442c511e0ce90f8bae83aa26824032badec2c5465b8db5d6f8e3b1ddb3",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p00031622776601683794/MSRR_ss_0p00031622776601683794_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "12a5f746b9656cfb0898c5c93d799a432d29bb7073b4d31a4fb7394f44a697ad"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0006309573444801932",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "b09c75082d711ca1b34b81143b1e14260b2edc803c3284d1e0a1d350e63579ec",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p0006309573444801932/MSRR_ss_0p0006309573444801932_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50004,
+    "passed": true,
+    "result_sha256": "2000405cecdbee60b2880e4c1df3152dc9c786c810608ce2552c3f6c4a26bb77"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0012589254117941673",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "8ca8201b6d1f7038201a1502aa2d49f7a691d3d8c8fb39ffa1294b756ed7ef9b",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p0012589254117941673/MSRR_ss_0p0012589254117941673_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "bbb3e03ea9ad0e90232aaa37323a8fbc44bd911bd24f4e679d2c8fa5de8b32ce"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p0025118864315095803",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "c69ba7d5ed6b8256850d1a7971f004f62a82a4a215dda5fed2ed6309fe68193d",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p0025118864315095803/MSRR_ss_0p0025118864315095803_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "685cfe22158a624b3dc4ec4949e077db62a8b3ce3a08f604931983c5260c2abd"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p005011872336272723",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "850b5d2cb05c12d923df019b19aa3eb6f4f7b878a2068bcd205c8a2197f8c8f0",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p005011872336272723/MSRR_ss_0p005011872336272723_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "928f490653e3b94be8bd5ce04a268066f70baa5186fc6e952111a2f80c34a655"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p01000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "66eb6dbd8ba25beecb96c20aacf9d91faca2ac6b5635650e2ac94dbccdfe6b70",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/continuation_9r/power_0p01000/MSRR_ss_0p01000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 200000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 2000004,
+    "passed": true,
+    "result_sha256": "65d4272b2d576d0ac7bcd50c7d715c6d471e3f0e7870d3ce4dd7ac9e45135712"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00001",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "b06b4d2b0468712a4781c0d2950d65b83c0415fb53b26df41e47fc15ad7b6c68",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p00001/MSRR_ss_0p00001_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 100000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 1066490,
+    "passed": true,
+    "result_sha256": "f70e5a81e83f539f8d4de4beca2935027972a06f4833c60ac7c90c483fa92323"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00010",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "ace37c229a3e0d023ed67a90ebe8647890294dbdf27eada1b836d8099f57b00f",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p00010/MSRR_ss_0p00010_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50060,
+    "passed": true,
+    "result_sha256": "7147e31e624d707948eae607b1d4641fbe480acb35dabf779fe84570508effb6"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00100",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "18473087e6179070944be67799e2afc144f3d5defa87d4d3a0300ca798af765e",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p00100/MSRR_ss_0p00100_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50012,
+    "passed": true,
+    "result_sha256": "76e71a9656044215cce791c709225182d5b633a06cbe82a03697e04c2f4887f7"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p01000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "0212ac597341f73c45c6626e241dd3707444f09bc17880db018c5dfb7b278475",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p01000/MSRR_ss_0p01000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "134ed73497ba21f361b4691e5e3faf55b2d37bcdc1d55613eaae6166db515c39"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p10000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "0cca224be5f8e9c85c77023d06bc2d73b2ac137289d7d231e6b3400a06e4a870",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p10000/MSRR_ss_0p10000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "0f352ce243818298493bbc8f5ebc47783986581b5c15e60a09853e99ace678b9"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p20000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "3e70c925ac4f1b0301b628beb37c79f5d0aa9ce9cb9faaf2f7e356eaced8ff1a",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p20000/MSRR_ss_0p20000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "c060d583a55f23228b105b48af757ee6f5a639add252fa0297ee0be3c5e9e6f9"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p40000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "ec95b509deabd594866d1c5c1807edd0643438e60deb5152b4b1e15f305784f1",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p40000/MSRR_ss_0p40000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "96792f4513a178b5bec658fdf9b57d7b96339854954cb180645fc0c00f776de9"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p60000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "102aaec0f5381b4b2b7db53e10c7b41f063afa0ceedacfca248fb6bc2f3e192a",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p60000/MSRR_ss_0p60000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "9e9afc8399197e1b0354bdd1b40cb1215cc12eb8990f4a8e64ceb8d2b8bdaffd"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p80000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "7f861ec90b60cf08f203c46d4575be94de6858fad367a0729ac649ee3f8f9444",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_0p80000/MSRR_ss_0p80000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "b0cbfa1333aa6c55c1f75060bac5e79161547938a14fe19612e9c718e174fd99"
+   }
+  },
+  {
+   "case": "MSRR_ss_1p00000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "c100fb30b7ffd502b9ebfe19d9dae9b641a5b030142787614dd338a41e708511",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_1p00000/MSRR_ss_1p00000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "195dfb1696e4c12e445f8b3082c4ed855218f7cdbeb3c797da71b258ce7cfe29"
+   }
+  },
+  {
+   "case": "MSRR_ss_1p20000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "1r",
+   "family": "setpoints",
+   "fingerprint": "b98c5ca6f7d8db61fde8649fa67ee9a561f22a7b1d2943cec63c48733ffc59d1",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_1r/power_1p20000/MSRR_ss_1p20000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "7abd67bfd18e273a3da80c289ac184d20f363603c89ab24e70f7a9b4e0702a9f"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00001",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "155e9c39d046ba146087d6204dc9518f64a4c0840351735a7aa75ee9cfb22d75",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p00001/MSRR_ss_0p00001_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 100000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 1413172,
+    "passed": true,
+    "result_sha256": "3f5777d9b536744f82a489a5f182ca5e0179a3117b50878258543be2d93bf938"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00010",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "2f74a90716a75ea656f5a7ab616680d2f3f7f85c8ef187df566b2a387f5ae4a9",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p00010/MSRR_ss_0p00010_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50964,
+    "passed": true,
+    "result_sha256": "8d85cc9fcc8e78a66b7dc4ca845c03bc9334ae768ebadcfb1b34bd05ea2835b6"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p00100",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "b226edd0061136231e401d809a7051aba4d838b58cde09d87a9c4910de401fc3",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p00100/MSRR_ss_0p00100_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 1000000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 50020,
+    "passed": true,
+    "result_sha256": "8acb1e59bf83f120a5a870cad0dde8bb2120609b5136e136d0af32fa44e6fadd"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p01000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": false,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "884c0bab9a6c337b717e17aeb7b75f060119ab48b8e92e6c39711e7c8805a7fb",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p01000/MSRR_ss_0p01000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "1ccbfee643b75733d5f5341676f8cfd116ce76934dddcfa4fd9b7235bcefae38"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p10000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "f9932ea23e9a160c6bdac523ad43cfed0f8bc8ee5aeda65beaf25b4754d1baca",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p10000/MSRR_ss_0p10000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "f30d38f4d7e206a7776253ed6c52a1694fae4e376553842e677e9883cf36bac0"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p20000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "8c43b8e33d7ce42d539129a105c492e71499c2bb40f65a6bd16bbf5d3e9b8793",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p20000/MSRR_ss_0p20000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "a9194cbc97f722fdf04fe471928bcee900fdb2c05544c519fe25c4d63b0caeb2"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p40000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "7b97d1a124fd7132037d3d3a74e1ff5f8e63346f7cb96207c9cf95e98e7d81e4",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p40000/MSRR_ss_0p40000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "9df78db150fbb629c2a4e2a3315275e851bb00c8c88750701122c4266b9f3044"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p60000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "514d5082274d722a926edb72b2bd24fa0b4bb993d2bf00faf408ad80a7fcea07",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p60000/MSRR_ss_0p60000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "2c5aa074522662785fac2aeea938841e149c9e3c72125657b9e7443e5d3526f8"
+   }
+  },
+  {
+   "case": "MSRR_ss_0p80000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "ad0d20418e78f4ce62fb559c62ccd0a146473e3da233bc8e34dee84edce10487",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_0p80000/MSRR_ss_0p80000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "12a0314f81755f8070726b4f2bc29538220d9a31ba9fa4ebab9633822ef64986"
+   }
+  },
+  {
+   "case": "MSRR_ss_1p00000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "b7af0ba296d2825de92334917b62c7ce2bb1b40a57334df8e2fd176e41c39051",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_1p00000/MSRR_ss_1p00000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "0f4ec4c578bcd5020d33fb47ca5f6304be1ac414c39a2f1d1006fc8a4a26b44e"
+   }
+  },
+  {
+   "case": "MSRR_ss_1p20000",
+   "convergence": {
+    "kind": "setpoint-tail-convergence",
+    "passed": true,
+    "result_sha256": null
+   },
+   "core_model": "9r",
+   "family": "setpoints",
+   "fingerprint": "ee448007f2426441671c561a55fa7417e3dda7b48ae0a834dda08bd31232af2b",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "setpoints/work_9r/power_1p20000/MSRR_ss_1p20000_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RNoTrips",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 30000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": {
+    "failed_checks": [],
+    "n_data_rows": 300004,
+    "passed": true,
+    "result_sha256": "e040497b0ab04b660c67a412162f7dd9a39a40febacc8d2683d4399bc2de1e23"
+   }
+  },
+  {
+   "case": "startUp_to1MW",
+   "core_model": "1r",
+   "family": "startup",
+   "fingerprint": "0a366e1facbea9c5e78dcd43872e22570534f6ce6deda268ed3c96c6f3eebc91",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "startup/1r/startUp_to1MW_res.manifest.json",
+   "model_name": "MSRR.MSRRstartUpTo1MW",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 151200.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "startUp_to1MW_9r",
+   "core_model": "9r",
+   "family": "startup",
+   "fingerprint": "5484f12e1ed379e6d026a6de9fca9bc0bca9eb32ec35e378febcf1ebf87fd24d",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "startup/9r/startUp_to1MW_9r_res.manifest.json",
+   "model_name": "MSRR.MSRRstartUpTo1MW9R",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 151200.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "flow_100pct",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "ac74ac70525d3cfbbfbddf445562b2c21ceac60ed7319157919505cac4d98278",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/flow_100pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "flow_33pct",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "749fc4cbd0840c0c5619e9ef390466f0d1ffb30e9d67371ebe40320995be4bc3",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/flow_33pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "flow_66pct",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "cb6438adf29f50bc0de4c250e7310c809ab2ab798da5682d54af5fef956be88a",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/flow_66pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_0p1dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "6fb3a31fda57a91c508bfafc9eae53190f4a860a5093785b316c1919bdb4af0e",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/step_0p1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_0p5dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "e366d59d9b6851ee425084aff8b32fee5d2c100901d55db9d54d94bcae2905e9",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/step_0p5dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_100pcm",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "f4c92c7042438da6a765cfd15d84d76d5b4133a7a60d5c45890e9bbd27a02ac2",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/step_100pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_10pcm",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "e80b94874fda3243c05d75ec77f200f97b6f561e647f950ed7d89660704accc3",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/step_10pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_1dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "e598b930c9e0fd1b6a5935842392b31cb1c3caf7777f3a3c175d28e5d2e0309c",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/step_1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_2dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "86094dbc9ce44e0ce22b8cf5c7a79d6fda9db24658a21afb19ef40453296a88d",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/step_2dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "uhx_trip",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "c56ca5b87fc197c91b60b2b3434e8d077d9fcda9420750e97f15c2419f1a69b8",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/1r/uhx_trip_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxTripThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 18400.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "flow_100pct",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "72f906c9c10039b3d4d2dde2d3981c55b22816ac98427af26c52ab100cdd8e0c",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/flow_100pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "flow_33pct",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "4688a1dda27ff84680bc49cc65f8defcd1cb1deee90e6e7f1e4f4dd2e8e85db4",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/flow_33pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "flow_66pct",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "8a8e8f713494c85ee6e0af0fe87717985eb2789a868f267e3701d4f01d1ef961",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/flow_66pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_0p1dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "bcba293f161b5b6c7bb5ec3da409fe55d8b95327a7ae0524d86e6f5b45ad3852",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/step_0p1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_0p5dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "9592592bc0ca108bfe044d82474d57fdec36c74710b425a04f8fe75824c886df",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/step_0p5dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_100pcm",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "9517636dbc99987e23f3b546c38f7cab916374036548f1788f20ba1dc883e7d8",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/step_100pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_10pcm",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "cb1bc390f2c875bd67372dc17b662dac0050e0a9204fc8631071d840df019408",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/step_10pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_1dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "cf36990d18601fa38e0f9253c1220cf8eddf32dbcf1d1a01cc269896fc3b389f",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/step_1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "step_2dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "96c8187b1bd97a57d4e759effad960ecf9cadc0fea007248d1835e02b88b8513",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/step_2dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "uhx_trip",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "722ca91aa2fcd9cdba3a0fdc1b0ef73528c1564b6596bd2278bbc0d6420f8cc7",
+   "fingerprint_ok": true,
+   "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "bcb9714637d7fadad9319433e3aeb2845d0873637f5b415b83643bb49c9aadab"
+   },
+   "manifest": "transients/9r/uhx_trip_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxTrip9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 18400.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-01",
+   "validation": null
+  },
+  {
+   "case": "startUp_to1MW_9r",
+   "core_model": "9r",
+   "family": "startup",
+   "fingerprint": "eba36fce12df03120f443465d7b271f6a1df41bc0e7cc67ae9184ff6dbe7c7b2",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "startup/9r/startUp_to1MW_9r_res.manifest.json",
+   "model_name": "MSRR.MSRRstartUpTo1MW9R",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 151200.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "flow_100pct",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "4d696631954954bdc760a1f8a2614dd82bac62733b8a7f09f9d6530dffc17cc9",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/flow_100pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "flow_33pct",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "93da5393a642ebdecf5cb89a90cdf226bea85378052e00f5c6ba7fa1dbc1483f",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/flow_33pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "flow_66pct",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "14555c1a74bef85768a582d53852c7b41b5a82fd076463093808a6b77f8f9bb4",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/flow_66pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_0p1dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "14d848d7c82222f40798032a14e833edb0547b8607ba03a6ff08b0b324ba99bd",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/step_0p1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_0p5dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "059260d69bbc3841c065f742baf78f04e69402a1c522a59edddf754a87350eda",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/step_0p5dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_100pcm",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "f12f71dda3af1c22ead001c3893dd2a84a13d63b7eb8a222ee56c9392f566a1d",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/step_100pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_10pcm",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "a962302a24b662ccf60db4fd56219dfa0697e0880f646b5a06c0599e81f4feb1",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/step_10pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_1dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "d4dc950c619862bf78aa14bf6b1f4157eaad27b1782eee6a0945290c1b994492",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/step_1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_2dol",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "d752b7faec66f0ce0c0e0de8c40545b41d1830ae32f4f65a919c8bb2778e6ff0",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/step_2dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrimThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "uhx_trip",
+   "core_model": "1r",
+   "family": "transients",
+   "fingerprint": "02963a1c39fdf2c595fa97216a4078febca31dd0da8caa04b838f9fa4a412d81",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/1r/uhx_trip_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxTripThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 18400.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "flow_100pct",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "c1534c236af54039b6b816845f29f0fac0a94e9b7f4da4108b8cd5a7205890dc",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/flow_100pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "flow_33pct",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "3edb903bdb7a7a17c3cc3722c7a79b8774f219e535a0cf629a91724fb6b7af4b",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/flow_33pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "flow_66pct",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "e7ced553002517e6f84f8f5f16fae3760b8733a662f3e9fe4db79e3fdb95fe0e",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/flow_66pct_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_0p1dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "e072b0ad14d3ee23c864f7b7b38c481a4458e34c9fe347c5a4c593397549019d",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/step_0p1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_0p5dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "a854bd9d64823efc617e2a8711d3f03037f057da410420a01cfa5dc0fce626e8",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/step_0p5dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_100pcm",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "3ac7a8387b710c4aaca20af405412c5f82f5c300f3a965a42c079cb4140bdfca",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/step_100pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_10pcm",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "f923858a053c2b0883715c3fecddf9c656293e8fbc4986fb84253811485e0d44",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/step_10pcm_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_1dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "725f8c0defcbcf8cf8073cea933a40769fff57bde7c3b3bc9ccc59d1a4ac1286",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/step_1dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "step_2dol",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "e5abbbcbab13527df8eed1e032cb7c55de9a31e612c4918c5619e693f280aa5f",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/step_2dol_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxNominalTrim9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 10000.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  },
+  {
+   "case": "uhx_trip",
+   "core_model": "9r",
+   "family": "transients",
+   "fingerprint": "292dcb9d9e6470487ae8fba0b7ba0db183d7416a3c4628739c824a2b2b43e135",
+   "fingerprint_ok": true,
+   "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+   "git_dirty": false,
+   "hashed_plant_deck": {
+    "msrr": "12423ca2d0b587ff7a090d2ad8e81d7ddffa92dddd18b1264ff45dc6ce7d1e7e"
+   },
+   "manifest": "transients/9r/uhx_trip_res.manifest.json",
+   "model_name": "MSRR.MSRRuhxTrip9RThermalSS",
+   "omc_version": "v1.27.0-cmake",
+   "plant": "msrr",
+   "reduction_certificate": null,
+   "stop_time_s": 18400.0,
+   "sweep_request": null,
+   "tree": "paper-rerun-psar-2026-10-02",
+   "validation": null
+  }
+ ],
+ "schema_version": 1,
+ "set_aside": [],
+ "setpoints": {
+  "cores": {
+   "1r": {
+    "model_version": "psar-basis-2026-10-01",
+    "promoted_evidence": {
+     "evidence_basis": null,
+     "file": "core/init/setpoints_1r_evidence.json",
+     "schema": 1,
+     "sha256": "0e961eb4b6a2d254b255fe43aa77e6b76101b3f37c0837dc0e1077090f4f8bb3"
+    },
+    "promoted_table_identical": true,
+    "rebuilt_evidence": {
+     "evidence_basis": "sidecar-derived summary",
+     "model_sources": {
+      "MSRR.mo": "match",
+      "SMD_MSR_Modelica.mo": "match",
+      "generated/MSRR_PlantData.mo": "differs from the table sidecar"
+     },
+     "model_sources_bound": false,
+     "raw_digests_verified": 0,
+     "rows": 11,
+     "schema": 2,
+     "sha256": "1573ac3d16acc0b8747ab146c72edbef4346fa28dfd4316b801384fa1db0d52d",
+     "worst_margin_over_table": {
+      "detrended_residual": {
+       "effective_limit": 465.8633498038241,
+       "family": "power",
+       "power": 0.1,
+       "ratio_to_limit": 0.003804064447310521,
+       "signal": "core1R.powerblock.fissionPower.P",
+       "value": 1.772174206293712
+      },
+      "projected_trend_drift": {
+       "effective_limit": 0.00019994135184713482,
+       "family": "population",
+       "power": 0.1,
+       "ratio_to_limit": 0.14448428159984703,
+       "signal": "core1R.mpke.n_population.n",
+       "value": 2.888838258373552e-05
+      },
+      "window_mean_difference": {
+       "effective_limit": 0.00019994135184713482,
+       "family": "population",
+       "power": 0.1,
+       "ratio_to_limit": 0.0721635854638021,
+       "signal": "core1R.mpke.n_population.n",
+       "value": 1.442848483176884e-05
+      }
+     }
+    },
+    "table_sha256": "6835346ed95a3b3b5bd4ac521ab35c8074f24a33c2bc0af24a95c0c22d74eb43"
+   },
+   "9r": {
+    "model_version": "psar-basis-2026-10-01",
+    "promoted_evidence": {
+     "evidence_basis": null,
+     "file": "core/init/setpoints_9r_evidence.json",
+     "schema": 1,
+     "sha256": "0ea5b6a400bce1396156145e1a4eb6994d5a1f67fa2312d972d00ae90639c29d"
+    },
+    "promoted_table_identical": true,
+    "rebuilt_evidence": {
+     "evidence_basis": "sidecar-derived summary",
+     "model_sources": {
+      "MSRR.mo": "match",
+      "SMD_MSR_Modelica.mo": "match",
+      "generated/MSRR_PlantData.mo": "differs from the table sidecar"
+     },
+     "model_sources_bound": false,
+     "raw_digests_verified": 0,
+     "rows": 11,
+     "schema": 2,
+     "sha256": "ac67de58c4bc767fb46c418284052a99fd5c1d91e99b6e2b2df38f2e974e9958",
+     "worst_margin_over_table": {
+      "detrended_residual": {
+       "effective_limit": 465.8657731532536,
+       "family": "power",
+       "power": 0.1,
+       "ratio_to_limit": 0.003674192976690467,
+       "signal": "msre9r.powerblock.fissionPower.P",
+       "value": 1.7116807518001587
+      },
+      "projected_trend_drift": {
+       "effective_limit": 186.34630926130146,
+       "family": "power",
+       "power": 0.1,
+       "ratio_to_limit": 0.14231846890142427,
+       "signal": "msre9r.powerblock.fissionPower.P",
+       "value": 26.52052141949972
+      },
+      "window_mean_difference": {
+       "effective_limit": 186.34630926130146,
+       "family": "power",
+       "power": 0.1,
+       "ratio_to_limit": 0.07108447208127226,
+       "signal": "msre9r.powerblock.fissionPower.P",
+       "value": 13.24632901813311
+      }
+     }
+    },
+    "table_sha256": "ae41ee4b788e63678bd16d3f06e698dc3e31e2a558020a24b2db159b6e2ae92f"
+   }
+  },
+  "setpoints_dir": "00runs/paper-rerun-psar-2026-10-01/setpoints"
+ },
+ "sweeps": [],
+ "trees": [
+  {
+   "campaign_summary": {
+    "csv_count": 2089,
+    "file_count": 16916,
+    "json_count": 4157,
+    "png_count": 43,
+    "total_bytes": 104192687642
+   },
+   "git_commits": [
+    "fb804dcb885d46137954a4c47c084a96915fb775"
+   ],
+   "local_files": {
+    "bytes": 70998893,
+    "count": 951
+   },
+   "metadata": {
+    "campaign_id": "psar-2026-10-01",
+    "completed_utc": "2026-10-02T11:44:48Z",
+    "git_commit": "fb804dcb885d46137954a4c47c084a96915fb775",
+    "git_status": [],
+    "model_family_check": "legacy MSRR sources present",
+    "openmodelica_version": "v1.27.0-cmake",
+    "python_version": "Python 3.12.14",
+    "setpoint_model_version": [
+     "current model version: psar-basis-2026-10-01",
+     "source digests: match"
+    ],
+    "source_sha256": [
+     {
+      "path": "core/generated/MSRR_PlantData.mo",
+      "sha256": "7f570e8d17d8de1874e567c61944924846d4c70065d6584693c0c3b2f2702948"
+     },
+     {
+      "path": "core/SMD_MSR_Modelica.mo",
+      "sha256": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838"
+     },
+     {
+      "path": "core/MSRR.mo",
+      "sha256": "7f05b09f483fef862bfc9f76469816cbe44b32d10d84dfc543586f51c2e42383"
+     },
+     {
+      "path": "startup/runMSRR.py",
+      "sha256": "19d7e5ddb74c59297167b20d25834ae8d0006eda699d4ea073439bf0d101da80"
+     },
+     {
+      "path": "transients/run_nonlinear_steps.py",
+      "sha256": "750f8571d113b3ed2541d564da77b85bbe08c2185daec6ea8123420212c06e83"
+     },
+     {
+      "path": "freq/runFreqNominalParallel.py",
+      "sha256": "b610c5281555f97d927f38b993476b23af1c9f001c35bb121be9e0413bc3c5e1"
+     },
+     {
+      "path": "freq/collectFreqNominalParallel.py",
+      "sha256": "eb63f7513d835e6a04c85db62fc5a106e1ca5e6b6f9fa18e4944e8345ba6360c"
+     },
+     {
+      "path": "freq/fr_protocol.py",
+      "sha256": "ea3c3010912a22eff9fba1792b32b5a9bc927edd7047615a421c376aa3e526ea"
+     },
+     {
+      "path": "freq/refinement.py",
+      "sha256": "18c236a761eab1806285d2120176f6f514ba91f0193e9f4d8d2bc953246da879"
+     },
+     {
+      "path": "freq/refine_sweep.py",
+      "sha256": "fad24d7ebde4c850ef33bb94419d4618feff730bf505b74f1c93740d02e80342"
+     },
+     {
+      "path": "freq/linearity_check.py",
+      "sha256": "a674a87beb803fc116ebcc3304a9949e11c8dd4916dd3d7613bbb0182668ff11"
+     },
+     {
+      "path": "data/scenarios/freq/fr_gain_prior.json",
+      "sha256": "3789ab961f404572f6d8893f919ea25f30d24a0fb2ca5fa28a8cae95d203b690"
+     },
+     {
+      "path": "core/init/model_version.json",
+      "sha256": "792350468805957a85dac40840c931bffe0d70108f1dae42e3846745056fa51b"
+     },
+     {
+      "path": "helpers/setpoint_model_version.py",
+      "sha256": "00525315ca45c0695146e4aac99f57053d0acc865fb6b233b3ae8fabfa0eb164"
+     },
+     {
+      "path": "helpers/paper-rerun/complete_setpoint_table.py",
+      "sha256": "70fd5ef09418f0425688e01799e73e83c56420a9f2e648421e00e177d150b29e"
+     }
+    ],
+    "started_utc": "2026-10-01T12:47:59Z"
+   },
+   "name": "paper-rerun-psar-2026-10-01",
+   "path": "00runs/paper-rerun-psar-2026-10-01",
+   "sha256sums": {
+    "absolute_normalized": 16917,
+    "already_relative": 0,
+    "entries": 16917,
+    "present": true,
+    "source_file": "SHA256SUMS",
+    "source_sha256": "3c780bf1c0b11b18d093dc157ef89080228236cc677e8935905e28fe43fb4ce2"
+   },
+   "toolchain": {
+    "openmodelica": [
+     "v1.27.0-cmake"
+    ],
+    "python": [
+     "Python 3.12.14"
+    ]
+   }
+  },
+  {
+   "campaign_summary": null,
+   "git_commits": [
+    "f92d8aa5ad1261c7148aa267c6e28c3370a4700d"
+   ],
+   "local_files": {
+    "bytes": 1675230,
+    "count": 120
+   },
+   "metadata": {
+    "git_commit": "f92d8aa5ad1261c7148aa267c6e28c3370a4700d",
+    "openmodelica_version": "v1.27.0-cmake",
+    "python_version": "Python 3.12.14",
+    "setpoint_model_version": [
+     "current model version: psar-basis-2026-10-01",
+     "source digests: match"
+    ],
+    "source_sha256": [
+     {
+      "path": "core/generated/MSRR_PlantData.mo",
+      "sha256": "7f570e8d17d8de1874e567c61944924846d4c70065d6584693c0c3b2f2702948"
+     },
+     {
+      "path": "core/SMD_MSR_Modelica.mo",
+      "sha256": "318010b7ffbed299de69b326b60ff5a6802f331e9721e815f0f45128f4692838"
+     },
+     {
+      "path": "core/MSRR.mo",
+      "sha256": "1eaeda2882aa60cd7cfcbb190840e7b22adb8235a60265589bcbad4cb097845c"
+     },
+     {
+      "path": "startup/runMSRR.py",
+      "sha256": "b925cce88a8aaa5980034948b08fa06b7821df468cc60d098e3d7a8488a039b5"
+     },
+     {
+      "path": "transients/run_nonlinear_steps.py",
+      "sha256": "fc607fc8abdb8fb77f0599ad984467e1ca33ebb551bb81a2ceec559cc65e7ed5"
+     },
+     {
+      "path": "helpers/circulation_dollar.py",
+      "sha256": "14805a7c9f9f7a8bf7eeff9178f100b651574fa939d20b55f8fdb191f725a83e"
+     },
+     {
+      "path": "data/scenarios/transients/results_ii.yaml",
+      "sha256": "ac15bb7d2cd89dbdff6746db1b610b103d07754e4f0abcc125707e664f02180c"
+     },
+     {
+      "path": "core/init/setpoints_1r.csv",
+      "sha256": "6835346ed95a3b3b5bd4ac521ab35c8074f24a33c2bc0af24a95c0c22d74eb43"
+     },
+     {
+      "path": "core/init/setpoints_9r.csv",
+      "sha256": "ae41ee4b788e63678bd16d3f06e698dc3e31e2a558020a24b2db159b6e2ae92f"
+     }
+    ]
+   },
+   "name": "paper-rerun-psar-2026-10-02",
+   "path": "00runs/paper-rerun-psar-2026-10-02",
+   "sha256sums": {
+    "present": false
+   },
+   "toolchain": {
+    "openmodelica": [
+     "v1.27.0-cmake"
+    ],
+    "python": [
+     "Python 3.12.14"
+    ]
+   }
+  }
+ ],
+ "verification": [
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p00001_verify.json",
+   "results_dir": "freq/1r/power_0p00001",
+   "sha256": "34fb2e4c25bcace6dec604769b82f9d767c2c3393c3d1eb7b58febfbd6e0c907",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p0001_verify.json",
+   "results_dir": "freq/1r/power_0p0001",
+   "sha256": "d3acfa3e1a0199bdd1b81dc980a9ecb82afc4adc898021394b4d08b685ce77cb",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p001_verify.json",
+   "results_dir": "freq/1r/power_0p001",
+   "sha256": "52d7b406781fa04f0ac4a12bab4e1afe21d8d9b011aa638eaf5f2ece06b70bcb",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p01_verify.json",
+   "results_dir": "freq/1r/power_0p01",
+   "sha256": "97828dc68bc3e58a8b4c23938beaf11ac30bf2d07d6720f73a636bfac1bf7b91",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p1_verify.json",
+   "results_dir": "freq/1r/power_0p1",
+   "sha256": "43f250cea7423d70e0845f35e45582ccad1d7437e46410ff382219f5a9321fab",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p2_verify.json",
+   "results_dir": "freq/1r/power_0p2",
+   "sha256": "15e207982029c8de0804c50b1d242de1f291f8a744c6602a38334d28a9ddb4fb",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p4_verify.json",
+   "results_dir": "freq/1r/power_0p4",
+   "sha256": "a062ced88b1cc30f457ab1113bee03da5db2f130570bfd8ebf4e293e828ae301",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p6_verify.json",
+   "results_dir": "freq/1r/power_0p6",
+   "sha256": "8681b3013fd64cbf2404ce0fcb05d10c5fb46f714c32e2e99b9677abe86e2d44",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_0p8_verify.json",
+   "results_dir": "freq/1r/power_0p8",
+   "sha256": "33e70e1d0895d4312fcf1dbc448363170ff875a977bcd0c5d7154882ccecc192",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_1_verify.json",
+   "results_dir": "freq/1r/power_1",
+   "sha256": "bfd33cb20f72b01582b3e208897938f47a569807ca4418c8597135de7507ee88",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_1r_1p2_verify.json",
+   "results_dir": "freq/1r/power_1p2",
+   "sha256": "32cdefb7e8225b00246d986d7989b5e83c140275f6813b62679a8efe5f2bc3af",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p00001_verify.json",
+   "results_dir": "freq/9r/power_0p00001",
+   "sha256": "967213370a4f156e20e19f21f532d403ed537691339b60d755f4a92e2edb8309",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p0001_verify.json",
+   "results_dir": "freq/9r/power_0p0001",
+   "sha256": "5d37575a718631f411d40553fd8dc4ef4495a239bc31e0ee72dc01116f1012bc",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p001_verify.json",
+   "results_dir": "freq/9r/power_0p001",
+   "sha256": "a982b00c2927210e150750fa50db8d91cde9841b3c9474e0ff4d0f0973264733",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p01_verify.json",
+   "results_dir": "freq/9r/power_0p01",
+   "sha256": "a2eb22b649d0b5389ad3ef8e4b0eaa9edc3f9b3ddafadf9bceb3fc9bf4c3ab34",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p1_verify.json",
+   "results_dir": "freq/9r/power_0p1",
+   "sha256": "2f032d3a14ba95a8f9773ba9543eb1956f93bfa23d3b59f4b612daae5d944701",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p2_verify.json",
+   "results_dir": "freq/9r/power_0p2",
+   "sha256": "fc0133241522c4b12017f04ed612b12b0eebadd3a325e3852124eb01c0b8cbea",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p4_verify.json",
+   "results_dir": "freq/9r/power_0p4",
+   "sha256": "807ce477b0903f8e99fefc1932016a1b7a9549bb688ed0c03e41790d5884a0ff",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p6_verify.json",
+   "results_dir": "freq/9r/power_0p6",
+   "sha256": "cef587f1e8cf530013de641732b283aae636d4ec7eab3deb1182b21632471431",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_0p8_verify.json",
+   "results_dir": "freq/9r/power_0p8",
+   "sha256": "44034312e9804bf907568f71f92b8368e7e9d6d94157087d44c61a45d070c2bb",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_1_verify.json",
+   "results_dir": "freq/9r/power_1",
+   "sha256": "a7b7576652437452d4dcc942398085149120ad184753323cdbb13d0a90b9b8f9",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 80,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 80,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_9r_1p2_verify.json",
+   "results_dir": "freq/9r/power_1p2",
+   "sha256": "39f18aa235fbd0ac0101cba25319aa9452ebd82beec20de0f17fa0f724c02dd3",
+   "swing_check_pass": true
+  },
+  {
+   "accepted": 1,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 1,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_time_1r_verify.json",
+   "results_dir": "freq_time_example/1r/power_1",
+   "sha256": "c6bf19c69af4038ab72e64b45236ff951841808bf23869d193db5572e7d76046",
+   "swing_check_pass": null
+  },
+  {
+   "accepted": 1,
+   "campaign_complete": true,
+   "core_maturity": "reference_regression",
+   "expected": 1,
+   "fit_convergence_status": "pass",
+   "numerical_quality_status": "pass",
+   "publication_approved": true,
+   "publication_eligible": true,
+   "report": "logs/freq_time_9r_verify.json",
+   "results_dir": "freq_time_example/9r/power_1",
+   "sha256": "aafb7834842f9f8039430137a17c860c5cb7167c82b64dfab94ea399042b6268",
+   "swing_check_pass": null
+  }
+ ]
+}

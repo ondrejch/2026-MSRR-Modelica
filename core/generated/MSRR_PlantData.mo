@@ -1,0 +1,204 @@
+// Emitter git revision: a9c23af (informational; --check ignores this line)
+package MSRR_PlantData
+  "GENERATED from data/plants/msrr - do not edit. Regenerate: python3.12 -m helpers.emit_modelica_plant"
+  final constant String plantId = "msrr";
+  package Kinetics
+    final constant Integer numGroups = 6;
+    final constant Real lambda[numGroups] = {0.0124, 0.0305, 0.111, 0.301, 1.14, 3.014};
+    final constant Real beta[numGroups] = {0.000226677, 0.001481023, 0.001328549, 0.00267133, 0.00077863, 0.000233792};
+    final constant Real LAMBDA = 0.0002593;
+    final constant Real nFloor = 1e-09;
+    final constant Real sourceScale = 1.58e+20;
+    final constant Real nu = 2.43;
+    final constant Real sourceEffectiveness = 1;
+    final constant Real energyPerFission = 3.204353268e-11;
+    final constant Real fullPowerPopulation = 19663843131543.3;
+    final constant Real nomTauCore = 43.5146;
+    final constant Real nomTauLoop = 10.8787;
+    final constant Real a_F = -6.26e-05;
+    final constant Real a_G = -5.16e-05;
+  end Kinetics;
+  package DecayHeat
+    final constant Integer numGroups = 3;
+    final constant Real DHYG[numGroups] = {0.0023751, 8.7763e-05, 1.9596e-06};
+    final constant Real DHlamG[numGroups] = {0.09453, 0.00442, 8.6098e-05};
+    final constant Real nomFrac = 0.068;
+  end DecayHeat;
+  package Materials
+    final constant Real rhoFuel = 2600;
+    final constant Real cpFuel = 1776;
+    final constant Real kFuel = 0;
+    final constant Real rhoGrap = 1800;
+    final constant Real cpGrap = 1773;
+    final constant Real rhoCoolant = 2038;
+    final constant Real cpCoolant = 2390;
+    final constant Real kCoolant = 0;
+    final constant Real rhoHXtube = 8774.5;
+    final constant Real cpHXtube = 450;
+  end Materials;
+  package PrimaryLoop
+    final constant Real vdotFuel = 0.0091923;
+    final constant Real volLoop[5] = {0.0024369, 0.04, 0.0048738, 0.045379, 0.0073107};
+    final constant Real dhrsMaxRemove = 320000;
+    final constant Real dhrsTK = 10;  // s: DHRS actuation time constant (YAML dhrs.tK, unit s, not kelvin)
+    final constant Real dhrsEngageTime = 1000000;
+    final constant Real dhrsBleed = 0;
+    final constant Real Ac = 0.282743339;
+    final constant Real L = 0.141471061;
+    final constant Real Ar = 0.266666667;
+    final constant Real e = 0.08;
+    final constant Real Tinf = 644.5;
+    final constant Real T_0 = 580.41;
+    package PipeCoreToDHRS
+      final constant Real volFracNode = 0.1;
+      final constant Real Ac = 0.0027321;
+      final constant Real L = 0.8919;
+      final constant Real Ar = 0.1653;
+      final constant Real e = 0.08;
+      final constant Real Tinf = 644.4;
+      final constant Real T_0 = 580.41;
+    end PipeCoreToDHRS;
+    package PipeDHRStoHX
+      final constant Real volFracNode = 0.01;
+      final constant Real Ac = 0.0027321;
+      final constant Real L = 1.7839;
+      final constant Real Ar = 0.3305;
+      final constant Real e = 0.08;
+      final constant Real Tinf = 644.4;
+      final constant Real T_0 = 580.41;
+    end PipeDHRStoHX;
+    package PipeHXtoCore
+      final constant Real volFracNode = 0.1;
+      final constant Real Ac = 0.0027321;
+      final constant Real L = 2.6758;
+      final constant Real Ar = 0.4958;
+      final constant Real e = 0.08;
+      final constant Real Tinf = 644.4;
+      final constant Real T_0 = 560;
+    end PipeHXtoCore;
+  end PrimaryLoop;
+  package SecondaryLoop
+    final constant Real vdotCoolant = 0.026202;
+    final constant Real hxVolP = 0.045379;
+    final constant Real hxVolT = 0.023343;
+    final constant Real hxVolS = 0.055947;
+    final constant Real hApNom = 77966;
+    final constant Real hAsNom = 18150;
+    final constant Real hAExp = 0.33;
+    final constant Real uhxVol = 0.204183209633634;
+    final constant Real pipeHXtoUHXvol = 0.2526;
+    final constant Real pipeUHXtoHXvol = 0.4419;
+    package HX
+      final constant Real AcShell = 0.1298;
+      final constant Real AcTube = 0.020276;
+      final constant Real ArShell = 3.1165;
+      final constant Real L_shell = 6.2592;
+      final constant Real L_tube = 12.5185;
+      final constant Real e = 0.01;
+      final constant Real Tinf = 500;
+      final constant Real TpIn_0 = 580.41;
+      final constant Real TpOut_0 = 560;
+      final constant Real TsIn_0 = 500;
+      final constant Real TsOut_0 = 507.84;
+    end HX;
+    package UHX
+      final constant Real Tp_0 = 500;
+    end UHX;
+    package PipeHXtoUHX
+      final constant Real volFracNode = 0.1;
+      final constant Real Ac = 0.012673;
+      final constant Real L = 19.932;
+      final constant Real Ar = 7.9559;
+      final constant Real e = 0.08;
+      final constant Real Tinf = 644.4;
+      final constant Real T_0 = 507.84;
+    end PipeHXtoUHX;
+    package PipeUHXtoHX
+      final constant Real volFracNode = 0.1;
+      final constant Real Ac = 0.012673;
+      final constant Real L = 34.87;
+      final constant Real Ar = 13.918;
+      final constant Real e = 0.08;
+      final constant Real Tinf = 644.4;
+      final constant Real T_0 = 500;
+    end PipeUHXtoHX;
+  end SecondaryLoop;
+  package Pumps
+    final constant Real tripK = 50;
+    final constant Real freeConvFF = 0.01;
+    final constant Real tripTime = 10000000;
+    final constant Integer primaryNumRampUp = 1;
+    final constant Real primaryRampUpK[primaryNumRampUp] = {1};
+    final constant Real primaryRampUpTo[primaryNumRampUp] = {1};
+    final constant Real primaryRampUpTime[primaryNumRampUp] = {0};
+    final constant Integer secondaryNumRampUp = 1;
+    final constant Real secondaryRampUpK[secondaryNumRampUp] = {100};
+    final constant Real secondaryRampUpTo[secondaryNumRampUp] = {1};
+    final constant Real secondaryRampUpTime[secondaryNumRampUp] = {0};
+  end Pumps;
+  package Core1R
+    final constant Integer nChan = 1;
+    final constant Integer nSeg = 2;
+    final constant Real cellVol[nSeg] = {0.2, 0.2};
+    final constant Real volGN = 1.758;
+    final constant Real hAnom = 4565;
+    final constant Real qFiss[nSeg] = {0.465, 0.465};
+    final constant Real kG = 0.07;
+    final constant Real kHT[nSeg] = {0.5, 0.5};
+    final constant Real IF1 = 0.5;
+    final constant Real IF2 = 0.5;
+    final constant Real IG = 1;
+    final constant Real hAExp = 0.33;
+    final constant Real flowFrac = 1;
+    final constant Real Ac = 1.5882;
+    final constant Real LF1 = 0.7875;
+    final constant Real LF2 = 0.7875;
+    final constant Real ArF1 = 3.5172;
+    final constant Real ArF2 = 3.5172;
+    final constant Real e = 0.08;
+    final constant Real TF1 = 570;
+    final constant Real TF2 = 580.41;
+    final constant Real TG = 570.0000028;
+    final constant Real heatLossTinf = 550;
+  end Core1R;
+  package Core9R
+    final constant Integer nRegions = 9;
+    final constant Integer nZones = 4;
+    final constant Integer zoneStart[nZones] = {1, 2, 5, 8};
+    final constant Integer zoneEnd[nZones] = {1, 4, 7, 9};
+    final constant Integer nSegZone[nZones] = {2, 6, 6, 4};
+    final constant Real volF1[nRegions] = {0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.01188910966, 0.014880331986, 0.059823315476, 0.040594513827};
+    final constant Real volF2[nRegions] = {0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.01188910966, 0.028956494924, 0.034788134316, 0.068118358784};
+    final constant Real volG[nRegions] = {0.034880478, 0.105337602, 0.08002416, 0.10244745, 0.178187364, 0.135434562, 0.17330364, 0.478951278, 0.469435224};
+    final constant Real volUpperPlenum = 0.022986;
+    final constant Real hA[nRegions] = {94.04, 262.05, 170.44, 314.1, 443.74, 287.91, 530.79, 1145.59, 1316.33};
+    final constant Real kFN1[nRegions] = {0.0149203167145, 0.0273422548766, 0.0450107879986, 0.0512267538368, 0.0359866446676, 0.0601009944546, 0.0684056047625, 0.0617499242991, 0.0932694681152};
+    final constant Real kFN2[nRegions] = {0.0171988379542, 0.0454704896522, 0.0465298021584, 0.0425823640457, 0.0606506377361, 0.0621396713533, 0.0566032644814, 0.0770200140109, 0.073062582384};
+    final constant Real kHT1[nRegions] = {0.000945386444198, 0.00168390714426, 0.00302703545399, 0.00344476434794, 0.00221456274878, 0.00404137714623, 0.00460001459053, 0.00391745757004, 0.00627292886916};
+    final constant Real kHT2[nRegions] = {0.00108029888602, 0.00305801534804, 0.00312896929892, 0.00239344665312, 0.00407835314881, 0.00417928764232, 0.00318193492423, 0.00517963841467, 0.00430220786709};
+    final constant Real flowFracRegions[nZones] = {0.06141, 0.13855, 0.234231, 0.565809};
+    final constant Real IF1[nRegions] = {0.02168, 0.02197, 0.07897, 0.08249, 0.02254, 0.08255, 0.08623, 0.02745, 0.06936};
+    final constant Real IF2[nRegions] = {0.02678, 0.06519, 0.08438, 0.04124, 0.06801, 0.08823, 0.0429, 0.05529, 0.03473};
+    final constant Real IG[nRegions] = {0.04443, 0.08835, 0.16671, 0.12077, 0.09181, 0.17429, 0.12612, 0.08408, 0.10343};
+    final constant Real LF1[nRegions] = {0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.173, 0.2165, 0.4463, 0.3028};
+    final constant Real LF2[nRegions] = {0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.173, 0.4213, 0.2595, 0.5082};
+    final constant Real Ac[nZones] = {0.016189, 0.036524, 0.061748, 0.149159};
+    final constant Real ArF1[nRegions] = {0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145};
+    final constant Real ArF2[nRegions] = {0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277};
+    final constant Real e = 0.08;
+    final constant Real TF1 = 566.94;
+    final constant Real TF2 = 576.02;
+    final constant Real TG = 570.89;
+    final constant Real TF1_0_regions[nRegions] = {566.94, 562.89, 584.55, 609.63, 561.59, 574.98, 590.48, 560.6, 565.19};
+    final constant Real TF2_0_regions[nRegions] = {576.02, 572.69, 597.23, 615.83, 567.64, 582.82, 594.3, 562.63, 566.46};
+    final constant Real TG_0_regions[nRegions] = {570.89, 566.21, 591.18, 613.04, 564.19, 580.21, 593.17, 562.06, 566.66};
+    final constant Real Tmix_0 = 580.41;
+    final constant Real mixingPotAc = 1.6118;
+    final constant Real mixingPotL = 0.093874;
+    final constant Real mixingPotAr = 0.4225;
+    final constant Real regionTripTime[nZones] = {200000, 200000, 200000, 200000};
+    final constant Real regionCoastDownK = 0.02;
+  end Core9R;
+  final constant Real nominalPower = 1000000;
+  final constant Real totalFuelVol = 0.5;
+end MSRR_PlantData;

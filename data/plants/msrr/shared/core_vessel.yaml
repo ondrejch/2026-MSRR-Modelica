@@ -1,0 +1,604 @@
+# TASK-20260917-01 P1/P7 -- outer-core fuel annulus / reactor-vessel /
+# thermostated cavity: data and topology DECISION RECORD (machine-facing
+# fields). The block fields sit at the TOP LEVEL of this file (every other
+# shared include carries its section content unwrapped); plant.yaml wires it
+# under the pinned key `outer_fuel_annulus`.
+#
+# Tracked companion record with the full rationale, citations, and quotes:
+#   data/plants/msrr/shared/core_vessel_decisions.md
+#
+# TASK-20260919-01 P2 (2026-09-19): PSAR Rev. 0 citations (source S6 = ACU
+# MSRR Preliminary Safety Analysis Report, Revision 0, August 2022, NRC
+# ADAMS ML22227A203; folio = printed page footer) recorded in the doc/source
+# text of existing nodes and in the decision record (D7 sourcing record,
+# D8 fission non-source). The deck stays DISABLED: every geometry node is
+# still a valueless placeholder, the fission vectors stay explicit zeros
+# (a documented non-source -- the 2022 PSAR predates the fission increment
+# and provides no annulus split), and no cavity-surface data is authored on
+# the adiabatic cavity.
+#
+# Wired into plant.yaml `includes:` by P7 (TASK-20260917-01):
+# `outer_fuel_annulus: shared/core_vessel.yaml`. helpers/plant_config
+# .load_plant now loads and strictly validates this block (plan section 7.2
+# rules, fail-closed, every refusal naming the configuration path and the
+# offending value), and `python3.12 -m helpers.emit_modelica_plant` emits the
+# dedicated SegmentedMSR_PlantData.OuterFuelAnnulus1R_10Seg package from it
+# (P7; the P8 production vehicle binds every generated field). The shipped
+# state stays `enabled: false`, so the generated record is the canonical
+# disabled dataset (zeros/neutral structural switches) that still names this
+# decision record's identity and policy.
+#
+# Placeholder convention (plan section 7.1): this deck is `enabled: false`, so
+# placeholders are permitted HERE and MUST be refused on any enabled deck.
+#   status: unsupported on a valueless node (declared unit stated in its
+#   doc) = the quantity must be sourced with a citation before production
+#   enablement. The shared data walker (helpers.data_validation
+#   .check_quantity_tree) admits only value/unit/doc/source/provenance keys
+#   inside a quantity mapping and rejects non-numeric and null values, so
+#   unsupported entries are recorded as valueless nodes rather than
+#   value: null mappings. No invented radii, material properties, or cavity
+#   temperatures (card constraint; planner resolution 4; HTGR
+#   local-heat-transfer notes are NOT a source for this vessel).
+#
+# Name pins (card Constraints): the block key is `outer_fuel_annulus`; it
+# shares no names, keys, commands, or fingerprints with the intra-channel
+# radial stack or its dedicated loop (see the card's forbidden-identity
+# list in Constraints).
+
+enabled: false
+doc: >
+  Shipped state is disabled. Production enablement is BLOCKED (see
+  production_enablement below and shared/core_vessel_decisions.md): the MSRR
+  PSAR (Rev. 0, August 2022, NRC ADAMS ML22227A203 -- source S6) states the
+  graphite lattice outer radius (65.0 cm, Table 4.2-1 folio 4-19) and the
+  approximate vessel size (about 132 cm diameter by about 179 cm tall,
+  section 1.2.3.5 folio 1-5), but not the vessel inner radius, vessel outer
+  radius, or per-segment physical lengths that the inventory subtraction and
+  the cylindrical resistance law need as deck fields, and it does not
+  establish a designed flow route through an in-vessel outer annulus.
+  Synthetic effective_thermal demonstrations may still proceed later under
+  the card's demo rules.
+dataset_id: msrr_outer_annulus_v1
+maturity: exploratory_geometry
+geometry_policy: strict_physical
+doc_geometry_policy: >
+  Production enablement requires strict_physical closure against cited
+  physical geometry (plan section 3.4). effective_thermal is reserved for
+  explicitly labeled synthetic demos only; it never carries a
+  production-deck identity.
+
+# ---- Production enablement gate (plan section 13 Phase 1 item 7) ----------
+production_enablement:
+  status: blocked
+  reasons:
+    - >
+      inventory subtraction value unsourced: V_outer_annulus needs the
+      graphite outer radius, vessel inner radius, and per-segment physical
+      lengths as deck fields. The PSAR re-open (S6, TASK-20260919-01 P1)
+      states a graphite lattice outer radius (65.0 cm, Table 4.2-1 folio
+      4-19, at 600 degC, preliminary) and an approximate vessel diameter
+      (about 132 cm, section 1.2.3.5 folio 1-5), but no vessel inner radius
+      (inner vs outer diameter unstated, no wall thickness), no vessel outer
+      radius, and no per-segment lengths; the cited NRC review still states
+      final graphite dimensions are deferred to the operating-license
+      application (ML24243A042, PSAR section 4.2.3).
+    - >
+      flow topology unsourced: no cited source establishes that the physical
+      MSRR routes primary fuel through an annular region between the graphite
+      and the reactor vessel wall, nor the axial direction of such a route
+      (ML24243A042 and ML25016A114 describe channels -> vessel top exit ->
+      RAV/pump bowl -> PHX -> cold-leg return; the PSAR itself describes
+      bottom-entering, upward channel-lattice flow, section 4.1.1 folio 4-2,
+      and names the graphite-to-vessel space only as a thermal-expansion
+      volume, section 4.5.3.1 folio 4-37; the annular downcomer of section
+      1.5 folio 1-13 is MSRE, not MSRR; plan section 6.2 is explicitly
+      conditional on "reviewed design evidence").
+    - >
+      cavity and vessel-surface data unsourced: cavity temperature,
+      vessel-to-cavity UA/area/emissivity, and insulation assumptions have
+      no numeric source. The PSAR RTMS holds its air at roughly 600 degC
+      (S6 section 6.2.4.3 folio 6-8) with electrical resistance heaters
+      (section 6.2.4 folio 6-7) and qualitative insulation only, but states
+      no UA/area/emissivity.
+    - >
+      vessel material properties unsourced: the alloy identity (SS316H) is
+      sourced (S6 section 4.3.3 folio 4-21), but its rho/cp/k for this
+      application are not tabulated anywhere (section 4.3.3 points to the
+      ASME BPVC without numbers; thermophysical-property evaluations are
+      deferred to the operating-license application, section 4.2.1.4 folio
+      4-8).
+
+# ---- Inventory policy (card P1; planner resolution 3; plan section 4.10) --
+inventory_policy: split_existing
+doc_inventory_policy: >
+  Exactly one of split_existing | revise_total | production_enablement_blocked.
+  Recorded here as split_existing: the legacy volume term that implicitly
+  contained any in-vessel outer-annulus fuel is the IN-VESSEL FUEL INVENTORY
+  term (0.4 m3, bound as the cell_vol sums), and the annulus volume is
+  subtracted from that aggregate while the 0.5 m3 total is preserved.
+  revise_total has no support: the cited 500 L is the whole primary-loop
+  inventory (a location-based total that already bounds any in-vessel
+  annulus), so no source demonstrates that 0.5 m3 excluded the annulus.
+  The PSAR confirms the location basis (S6 section 4.2.1.1 folio 4-6): the
+  vessel requires 400 L to fill, the operating loop approximately 500 L, and
+  the reactor system approximately 550 L (about 50 L standing in the drain
+  tank).
+  The numeric subtraction is UNSUPPORTED (geometry unsourced), which is the
+  first production_enablement.reason above; enabling without it would
+  double-count fuel, decay heat, residence time, and poison dilution.
+inventory:
+  legacy_term:
+    value: 0.4
+    unit: m3
+    doc: >
+      Legacy term identity: in_vessel_fuel_inventory. This is the legacy
+      term that implicitly contained any in-vessel outer-annulus fuel: the
+      cited design-table row "Reactor fuel volume 400 L" and the
+      residence-time sentence "in-vessel fuel inventory 400 L" (msrrPrelim
+      via latex/MSRR_journal_article/msrr_system_dynamics.tex design-data
+      table and 'Residence Times and Circulation Reactivity Loss'
+      subsection). PSAR primary source (S6, section 4.2.1.1 folio 4-6):
+      "The reactor vessel requires 400 L to fill." Bound in-repo as
+      cores/r1.yaml cell_vol [0.2, 0.2]
+      (MSRR.Components.MSRR1R fuelchannel vol_FN1/vol_FN2) and
+      cores/r1_10seg.yaml cell_vol (ten x 0.04, sum 0.4); consumed by
+      SegmentedMSR PowerBlock.TotalFuelVol = sum(cellVol)+sum(volLoop)
+      (core/SegmentedMSR.mo:2432, 4565, 4994, 5348, 5806).
+    source: msrr_system_dynamics.tex tab:msrrDesignData and residence-time subsection (Reactor fuel volume 400 L; in-vessel fuel inventory 400 L); PSAR Rev. 0 section 4.2.1.1 folio 4-6 (The reactor vessel requires 400 L to fill)
+  subtraction:
+    expression: V_active_channel_salt = 0.4 m3 - V_outer_annulus
+    status: unsupported
+    doc: >
+      When the annulus is enabled, the channel-region salt volume is carved
+      out of the 0.4 m3 in-vessel term so that
+      sum(cellVol_channel) + V_outer_annulus + sum(volLoop) still closes to
+      0.5 m3 and every |TotalFuelVol - 0.500| < 1e-6 cross-check holds.
+      The DISABLED path keeps cellVol = 0.4 unchanged (disabled-path
+      identity is release-blocking). The numeric value is the unsupported
+      geometry: it requires sourced graphite_outer_radius, vessel_inner_radius,
+      and physical lengths (production_enablement.reasons, first entry).
+      Declared unit when sourced: m3.
+  total_retained:
+    value: 0.5
+    unit: m3
+    doc: >
+      plant.yaml total_fuel_vol is NOT changed under split_existing; it stays
+      the cross-check total (in-repo closure: 0.4 + 0.1000004 = 0.5000004,
+      inside the 1e-6 warning tolerance). PSAR primary source (S6, section
+      4.2.1.1 folio 4-6): the "reactor loop, during normal operation, will
+      be filled with approximately 500 L"; the approximately 550 L reactor
+      SYSTEM adds the roughly 50 L drain-tank inventory, so 0.55 m3 is NOT
+      the loop total (decision record D7, discrepancy 1).
+    source: data/plants/msrr/plant.yaml total_fuel_vol; core/SegmentedMSR.mo:128-132; PSAR Rev. 0 section 4.2.1.1 folio 4-6 (approximately 500 L in the operating loop)
+  active_core_cell_volume:
+    status: unsupported
+    doc: >
+      EXECUTABLE carved active-core channel fuel volume matrix
+      [n_chan, n_seg] (P0, TASK-20260918-01; plan section 6 Phase 0). On an
+      enabled split_existing deck this node carries the sourced
+      [n_chan][n_seg] matrix in m3 that the generated
+      OuterFuelAnnulus1R_10Seg record emits as activeCoreCellVolume and the
+      embedded SegmentedCore / PrecursorNetwork ChannelMap consumes as
+      cellVol - the physical fission-active inventory, not a diagnostic.
+      Required: every entry positive; whole-volume closure
+      sum(V_active) + sum(V_annulus) + V_loop = total_retained within 1e-6
+      m3; on the one-channel target also the per-elevation closure
+      V_active,j + V_annulus,j = V_legacy,j (each legacy cell carved against
+      its own elevation's annulus volume; nonpositive remainders refuse).
+      The numeric value here is the unsupported geometry (the first
+      production_enablement.reason). Declared unit when sourced: m3.
+  dependents_when_enabled:
+    - data/plants/msrr/plant.yaml total_fuel_vol (cross-check value; consumed by the lumped bind core/MSRR.mo:509, 823)
+    - PowerBlock.TotalFuelVol := sum(cellVol)+sum(volLoop) binds (core/SegmentedMSR.mo:2432, 2845, 4565, 4994, 5348, 5806, 6978; 9R chain form sum(cellVolChain9R)+sum(volLoop9R)+volUP9R at 3405-3406, 3886, 7240-7242)
+    - ten |TotalFuelVol - 0.500| < 1e-6 cross-check asserts (core/SegmentedMSR.mo:2466, 2883, 3587, 4187, 4599, 5033, 5386, 5850, 6999, 7515)
+    - HomogeneousPoisons binds V_fuel = pb.TotalFuelVol and V_core = sum(map.cellVol) / sum(cellVolChain9R) (core/SegmentedMSR.mo:2436-2437, 2849-2850, 3891-3892, 4569-4570, 4998-4999, 5352-5353, 5810-5811; defaults V_fuel = 0.5, V_core = 0.4 at 1474-1475)
+  doc_dependents_when_enabled: >
+    Plan section 4.9 fixes the enabled-state bindings: V_fuel = active-core +
+    outer-annulus + external-loop fuel (= 0.5 m3 under split_existing);
+    V_core remains the fission-active channel volume (0.4 - V_outer_annulus).
+    P5 asserts elementwise thermal/precursor annulus-volume equality and
+    exposes the closure residual.
+
+# ---- Flow topology (planner resolution 7; plan section 6.1 integer codes) --
+topology:
+  series_location_code: 1
+  doc_series_location_code: >
+    Plan section 6.1 series codes: 1 = outer annulus disabled, established
+    core inlet/outlet behavior; 2 = active core followed by outer annulus;
+    3 = outer annulus followed by active core. Code 1 is recorded because
+    the shipped state IS the disabled state; it is the only code a cited
+    source supports today.
+  enabled_series_location_code: null
+  enabled_series_location_status: unsupported
+  doc_enabled_series_location_code: >
+    BLOCKED. No cited source establishes a designed flowing fuel annulus
+    inside the reactor vessel. The retrieved NRC documents describe: fuel
+    salt flows through the graphite channels, exits the top of the vessel,
+    moves into the Reactor Access Vessel (RAV) and pump bowl, then the PHX
+    shell side and back via the cold leg (ML25016A114 section 2.1;
+    ML24243A042 section 4.5). The PSAR agrees (S6): fuel enters the vessel
+    at the bottom and flows upward through the graphite channel lattice
+    (section 1.2.3.3 folio 1-5; section 4.1 folio 4-1; section 4.1.1 folio
+    4-2; section 4.6.1.2 folio 4-47), and the space between the graphite and
+    the reactor vessel wall is acknowledged only as a thermal-expansion
+    volume (section 4.5.3.1 folio 4-37) -- a gap, not a designed series
+    segment. The annular downcomer between the graphite periphery and a core
+    barrel is an MSRE feature (section 1.5 folio 1-13), not MSRR; existing
+    PSAR text therefore argues AGAINST a production series annulus. Plan
+    section 6.2's core-outlet-to-annulus return wiring is explicitly
+    conditional and must not be inferred from an illustration (plan
+    section 1.1).
+  flow_direction_code: null
+  flow_direction_status: unsupported
+  doc_flow_direction_code: >
+    BLOCKED. Plan section 6.1 direction codes: 1 = segment 1 -> nSeg,
+    2 = segment nSeg -> 1. Meaningless while disabled and unsourced for the
+    enabled state (same evidence gap as the series location). The PSAR does
+    source the CHANNEL flow direction as upward, bottom-entering (S6
+    section 4.2.1.5: "the flow is oriented upwards"; also section 1.2.3.3
+    folio 1-5 and section 4.1.1 folio 4-2) -- segment 1 = bottom would be
+    code 1 if an in-vessel path were ever modeled -- but that is not an
+    annulus-direction source while the topology itself is disabled. A
+    production dataset must name ONE topology, not leave users to guess
+    (plan section 6.1); until then only code-1 disabled behavior ships.
+
+# ---- First production target: 1r10seg elevations (plan section 13 Phase 1
+#      item 3; card A1) ------------------------------------------------------
+first_production_target: r1_10seg
+axial_grid_1r10seg:
+  n_seg: 10
+  lf_per_segment:
+    value: 0.1575
+    unit: m
+    doc: >
+      Modeled per-segment active length; ten segments span the 1.575 m
+      modeled active channel length (2 x the r1 value 0.7875 m). The
+      outer-annulus assembly must use the same per-cell Lcell[nSeg]
+      contract (TASK-20260916-01 P3; nonuniform-capable, never L/nSeg).
+    source: data/plants/msrr/cores/r1_10seg.yaml channel_geom.LF (cores/r1.yaml LF = [0.7875, 0.7875], source MSRR.R1MSRRuhx)
+  dz_pitch:
+    value: 0.14
+    unit: m
+    doc: Axial pitch per segment (10 x 0.14 m = 1.4 m = 2 x the r1 value 0.7 m); moderator center spacing, does not control heat capacity.
+    source: data/plants/msrr/cores/r1_10seg.yaml channel_map.dz
+  modeled_active_length:
+    value: 1.575
+    unit: m
+    doc: Ten x 0.1575 m; the r1-inherited lumped active length (2 x 0.7875 m).
+    source: data/plants/msrr/cores/r1_10seg.yaml channel_geom.LF sum
+  span_definition: >
+    Segment j = 1..10 spans [(j-1) x 0.1575 m, j x 0.1575 m] measured from
+    the BOTTOM of the modeled active region (segment 1 is the bottom
+    segment, matching the established trim mapping TF1 -> segments 1-5
+    lower, TF2 -> segments 6-10 upper).
+  datum_elevations:
+    status: unsupported
+    doc: >
+      Absolute physical elevations against a reactor-vessel datum are
+      unsupported: PSAR Figure 4.1-3 (S6, folio 4-5, "Reactor System Major
+      Internals and Approximate Dimensions") is image-only in the extracted
+      text with no numeric callouts, and the cited NRC review records that
+      PSAR graphite dimensions are preliminary with final design parameters
+      deferred to the operating-license application (ML24243A042, PSAR
+      section 4.2.3). Declared unit when sourced: m.
+  graphite_height_design_value:
+    value: 1.5168
+    unit: m
+    doc: >
+      Cited "Maximum graphite height 151.68 cm" from the design-data table
+      (msrrPrelim). PSAR primary source (S6, Table 4.2-1 folio 4-19):
+      "Maximum height of graphite core 151.68 cm", tabulated at 600 degC and
+      marked preliminary ("Final design parameters will be provided in the
+      Operating License application", section 4.2.3 folio 4-12). Disclosed
+      approximation: the modeled active length
+      1.575 m exceeds it by ~5.8 cm because the modeled length is the r1
+      inherited lump, not a surveyed graphite height. Recorded for
+      comparison only; the annulus elevations follow the model grid, not
+      this design value.
+    source: msrr_system_dynamics.tex tab:msrrDesignData (Maximum graphite height 151.68 cm, obtained from msrrPrelim); PSAR Rev. 0 Table 4.2-1 folio 4-19 (Maximum height of graphite core 151.68 cm, at 600 degC, preliminary)
+
+# ---- Moderator-boundary mapping policy (plan section 13 Phase 1 item 4) ---
+moderator_coupling:
+  mapping_policy: authored_matrix
+  doc_mapping_policy: >
+    G_modAnn[c,j] is authored (or derived from a separately reviewed
+    graphite outer-boundary geometry); it is NEVER inferred from the
+    inter-channel ChannelMap neighbor table, and interior channels in a
+    multi-channel core receive zero outer-boundary conductance (plan
+    section 4.2). P3 must not infer it from ChannelMap neighbors (card A3).
+  conductance:
+    status: unsupported
+    doc: >
+      The authored [nChan, nSeg] conductance values require the sourced
+      graphite outer-boundary geometry; none exists (card constraint; no
+      invented numbers). A reduced-order conductance is not a PSAR-tabulated
+      quantity, and the PSAR defers thermophysical-property evaluations to
+      the operating-license application (S6 section 4.2.1.4 folio 4-8). For
+      r5x5_z10 the authored matrix is a separate owner follow-up outside
+      this card's production enablement. Declared unit when sourced: W/K.
+
+# ---- Interfaces (plan section 7.1 illustrative structure) ------------------
+interfaces:
+  graphite_to_fuel:
+    mode: film
+    h:
+      status: unsupported
+      doc: >
+        Declared unit when sourced: W/(m2.K).
+  fuel_to_vessel:
+    mode: film
+    h:
+      status: unsupported
+      doc: >
+        Declared unit when sourced: W/(m2.K).
+  doc_interfaces: >
+    Film modes per the plan section 7.1 illustration are DISABLED-PATH
+    PLACEHOLDERS ONLY (P0, TASK-20260918-01): the Modelica assembly refuses
+    both film modes, so an ENABLED deck must declare graphite_to_fuel.mode =
+    authored_matrix (with the sourced G_modAnn matrix) and fuel_to_vessel.mode
+    = perfect - Python refuses enabled film decks fail-closed, naming the
+    path. Film is a documented future extension requiring sourced film
+    coefficients AND an implemented Modelica interface.
+
+# ---- Vessel material (sourced identity, unsourced properties) -------------
+vessel_material:
+  identity: SS316H
+  doc_identity: >
+    Sourced: the NRC safety evaluation describes the reactor vessel /
+    leak-tight boundary as fabricated from 316H stainless steel
+    (ML24243A042, sections 3.5 and 4.3), and the cited design-data table
+    lists "Stainless steel 316H" for piping and others (msrrPrelim). PSAR
+    primary source (S6, section 4.3.3 folio 4-21): the vessel is
+    "constructed of stainless steel 316H or equivalent (as determined by
+    carbon content)" to the ASME BPVC, allowed to 816 degC (1500 degF,
+    Section III-5) with a 300,000-hour design life; also section 1.2.3.3
+    folio 1-5 and Table 5.2-1 folio 5-4.
+  source_identity: ML24243A042 sections 3.5/4.3; msrr_system_dynamics.tex tab:msrrDesignData (Stainless steel 316H); PSAR Rev. 0 section 4.3.3 folio 4-21 (stainless steel 316H or equivalent; 816 degC Code limit)
+  rho:
+    status: unsupported
+    doc: >
+      SS316H density for this application is not cited in the repository;
+      the existing materials.yaml hx_tube values are NOT attributed to any
+      alloy in-repo and must not be silently reused. The PSAR (S6) states
+      no number: section 4.3.3 points to the ASME BPVC, and thermophysical-
+      property evaluations are deferred to the operating-license
+      application (section 4.2.1.4 folio 4-8). Declared unit when
+      sourced: kg/m3.
+  cp:
+    status: unsupported
+    doc: >
+      No PSAR number (S6 section 4.3.3 cites the ASME BPVC without
+      properties; section 4.2.1.4 folio 4-8 defers thermophysical-property
+      evaluations to the operating-license application). Declared unit when
+      sourced: J/(kg.K).
+  k:
+    status: unsupported
+    doc: >
+      No PSAR number (S6 section 4.3.3 cites the ASME BPVC without
+      properties; section 4.2.1.4 folio 4-8 defers thermophysical-property
+      evaluations to the operating-license application). Declared unit when
+      sourced: W/(m.K).
+
+# ---- Annulus fuel conductivity (REV-21c79f7-01; TASK-20260918-01) ---------
+fuel_conductivity:
+  status: unsupported
+  doc: >
+    Annulus radial conductivity of the PRIMARY FUEL, declared unit when
+    sourced: W/(m.K). The annulus cells' radial (annular conduction)
+    resistance consumes this value on an enabled deck; it is a SEPARATE
+    datum from the generated Materials.kFuel = 0 placeholder, which records
+    the axial salt conduction being off (PLAN23-08) and must never drive
+    the annulus radial resistance. An enabled deck REQUIRES a strictly
+    positive sourced value here (the validator refuses missing/zero by
+    name); the disabled generated record emits kFuel = 0, never consumed
+    because the annulus folds away. The PSAR provides no value (S6 section
+    4.2.1.4 folio 4-8: "Evaluations of thermophysical properties will be
+    provided in the Operating License application."); do not reuse
+    materials.fuel.k = 0 as this radial datum.
+
+# ---- Cavity (plan section 7.1; all values unsourced) ----------------------
+cavity:
+  temperature:
+    status: unsupported
+    doc: >
+      No cited cavity/vault temperature exists in the repository. The PSAR
+      analog is the Reactor Thermal Management System (RTMS): its air is at
+      "roughly 600 degrees Celsius" and open to the reactor enclosure
+      atmosphere (S6 section 6.2.4.3 folio 6-8), maintained by electrical
+      resistance heaters (section 6.2.4 folio 6-7) -- an approximate
+      operating description, not a precision setpoint, and NOT the
+      heat_loss_tinf = 550 degC placeholder. The approximate 600 degC figure
+      is recorded in the decision record (D7) while this cavity stays
+      disabled/adiabatic; enabling would still require mode-consistent
+      UA/area/emissivity. The P6 binding consumes kelvin (plan section 7.2:
+      fixed cavity temperature in kelvin after conversion); the conversion
+      source must be cited at the same time as the value. Declared unit when
+      sourced: degC (the plant temperature convention; the segmented emitter
+      converts to kelvin).
+  vessel_UA:
+    status: unsupported
+    doc: >
+      Declared unit when sourced: W/K.
+  vessel_area:
+    status: unsupported
+    doc: >
+      Declared unit when sourced: m2.
+  vessel_effective_emissivity:
+    status: unsupported
+    doc: >
+      Declared unit when sourced: dimensionless (unit 1).
+
+# ---- Precursor importance (plan section 13 Phase 1 item 5; plan 4.8) ------
+precursor_importance:
+  policy: zero_credit_no_fission_neutronic_effect
+  doc_policy: >
+    Documented no-credit assumption (plan section 4.8): all annulus
+    importance weights w[a,i,j] default to ZERO, so the annulus delayed-
+    neutron contribution D[a,i] = lambda_i * sum_j w[a,i,j] * X[a,i,j] is 0
+    until a reviewed importance distribution is added. This matches the
+    established convention (in-core cells default ALL cells counted,
+    external loop compartments default NONE, core/SegmentedMSR.mo:1846-1848,
+    3046-3050) and the cited subcriticality posture (unmoderated salt
+    outside the graphite core region is subcritical, ML24243A042 section
+    4.5). The PSAR states the same posture (S6, section 4.5.2.6 folio
+    4-35): "The only location within the MSRR that fuel salt can approach
+    criticality is the reactor vessel. Without moderation, the fuel salt
+    cannot become critical", and section 4.5.2.7 gives delayed neutrons
+    born outside the core an importance of 0. The no-credit default is a
+    DOCUMENTED assumption, not proof that
+    annulus decays have no neutronic effect (plan section 4.8); the annulus
+    precursor STATES and transport are still modeled explicitly (card A5).
+  weights:
+    status: unsupported
+    doc: >
+      Numeric per-cell weights are pinned by the generated dataset (P5/P7),
+      not by this record; the recorded policy is zero credit. Nonnegative
+      weights are a plan section 7.2 validation rule. Declared unit when
+      sourced: dimensionless (unit 1).
+
+# ---- Annulus fission (plan sections 5.1/5.2; TASK-20260918-01 P1) ---------
+# The conservative SPLIT of the existing total fission source - NEVER an
+# additive source. P1 carries the DATA, validation, fingerprint, and
+# manifest identity only; the power splitters are P2 and the precursor
+# production split is P3 (card phases). Fail-closed validation
+# (helpers.plant_config._validate_outer_fuel_annulus): finite, nonnegative
+# entries; vector length = the target core's n_seg; STRICT retained-share
+# 1-fsum(f) >= 1e-9 on BOTH vectors (hence 0 <= sum_j f_a,j < 1;
+# the active core keeps F_c = 1 - F_a > 0 with at least a 1e-9 share); elementwise f^S = f^Q under local_same_fraction
+# (tolerance-considered equality); nonzero fractions illegal whenever the
+# outer annulus or the fission feature is disabled; unsupported policy
+# names refused; NO silent renormalization of malformed data; complete
+# provenance on any fission-enabled deck (the enabled-deck provenance walk
+# requires doc+source on every sourced quantity). Every refusal names the
+# configuration path and the offending value.
+fission:
+  enabled: false
+  doc_enabled: >
+    Shipped state: fission DISABLED with zero fraction vectors (card A9).
+    Annulus fission is an explicit opt-in split of the whole-reactor
+    fission source: the core receives (1 - F_a^Q) of the total fission
+    power and annulus cell j receives f^Q_a,j of it (plan section 5.3),
+    while fission events split the delayed-neutron precursor production by
+    f^S_a,j (plan section 5.4). Enabling requires the outer_fuel_annulus
+    enabled AND source-backed (or explicitly synthetic) distributions with
+    complete provenance; the whole-power closure
+    P_core + sum_j P_annulus,j = P_total is asserted from the DELIVERED
+    powers in Modelica (P2).
+  coupling_policy: local_same_fraction
+  doc_coupling_policy: >
+    First-release coupling policy (planner resolutions 10/17): the ONLY
+    supported value is local_same_fraction - elementwise f^S_a,j = f^Q_a,j
+    is a validation rule (tolerance-considered equality,
+    OUTER_ANNULUS_FISSION_FRACTION_TOLERANCE = 1e-9), never a schema
+    collapse: source_fraction and heat_deposition_fraction stay DISTINCT
+    names because fission-event location and energy deposition are not
+    generally identical physical quantities (plan section 5.1). A second
+    coupling policy is a future owner decision; unknown names refuse.
+  source_fraction:
+    value: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    unit: "1"
+    doc: >
+      f^S_a,j [1]: fraction of whole-reactor fission EVENTS occurring in
+      annulus segment j (ten entries for the r1_10seg target; segment
+      j = 1..10 spans [(j-1) x 0.1575 m, j x 0.1575 m] measured from the
+      BOTTOM of the modeled active region, matching the
+      axial_grid_1r10seg span_definition). Validation (fail-closed, plan
+      section 5.2): finite, nonnegative entries; length = n_seg (10);
+      STRICT retained-share 1-fsum(f) >= 1e-9 (hence 0 <= sum_j f^S_a,j < 1; the active core keeps
+      F_c^S = 1 - F_a^S > 0 with at least a 1e-9 share); nonzero entries illegal while the outer
+      annulus or the fission feature is disabled; no silent
+      renormalization. Provenance is required for every nonzero quantity
+      (and on any fission-enabled deck, where the enabled-deck provenance
+      walk demands doc+source on both vectors). The zeros here are the
+      shipped disabled state, NOT sourced data. NON-SOURCE (TASK-20260919-01
+      P2): the MSRR PSAR (Rev. 0, August 2022, NRC ADAMS ML22227A203)
+      predates the fission increment and provides NO annulus fission split
+      -- section 4.6.1.2 folio 4-47 deposits "almost all of the reactor
+      power" within the reactor vessel, and section 4.5.2.6 folio 4-35
+      locates criticality only in the vessel -- so these zeros are a
+      documented non-source, never an inherited default; any future
+      distribution needs its own reviewed source.
+  heat_deposition_fraction:
+    value: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    unit: "1"
+    doc: >
+      f^Q_a,j [1]: fraction of whole-reactor prompt fission POWER
+      deposited in annulus segment j (P2 delivers f^Q_a,j * P_total to
+      annulus cell j and (1 - F_a^Q) * P_total to the embedded core). Same
+      fail-closed rules as source_fraction (length 10, strict retained-share
+      1-fsum(f) >= 1e-9, hence 0 <= sum < 1, nonnegative, no renormalization). Under
+      local_same_fraction this vector must agree with source_fraction
+      ELEMENTWISE within OUTER_ANNULUS_FISSION_FRACTION_TOLERANCE (1e-9) -
+      a validation rule that keeps the distinct names, not a merge.
+      NON-SOURCE (TASK-20260919-01 P2): the PSAR (Rev. 0, August 2022)
+      provides no annulus heat-deposition split either (section 4.6.1.2
+      folio 4-47; Figures 4.5-4/4.5-5 are image-only in the extracted text)
+      -- the same documented non-source as source_fraction; the zeros are
+      not an inherited default.
+  annulus_temperature_feedback_policy: zero_credit
+  doc_annulus_temperature_feedback_policy: >
+    First release: zero_credit ONLY (plan section 5.6). Annulus fission
+    fuel temperature contributes NO reactivity feedback until a reviewed
+    importance-weighted coefficient arrives (P4); the zero-credit choice
+    is an explicit, fingerprinted, manifest-visible policy - never a
+    silent assumption ("do not silently treat annulus fission as
+    thermally active but neutronic-feedback-free"). Unknown policy names
+    refuse.
+  annulus_temperature_feedback:
+    weights:
+      status: unsupported
+      doc: >
+        UNSUPPORTED in the first release (plan section 5.6): the weighted
+        feedback term delta_rho_a,T = alpha_f,a * sum_j w^T_a,j *
+        (T_a,j - T_a,j,0) and its per-segment weights w^T_a,j [1] arrive
+        with a supported weighted policy (P4); sourced values under a
+        zero_credit policy refuse fail-closed (phantom data). Declared
+        unit when sourced: 1.
+    coefficient_alpha:
+      status: unsupported
+      doc: >
+        UNSUPPORTED in the first release (see weights above): the annulus
+        feedback coefficient alpha_f,a arrives with a supported weighted
+        policy (P4); sourced values refuse fail-closed under zero_credit.
+        Declared unit when sourced: 1/K.
+  poison_flux_exposure_policy: zero_credit
+  doc_poison_flux_exposure_policy: >
+    First release: zero_credit ONLY (plan section 5.5). The homogeneous
+    poison model keeps its whole-reactor fission-rate production (total
+    poison production is NOT increased a second time) and credits NO
+    annulus absorption exposure: the effective irradiated volume stays
+    V_irr,eff = V_active until a reviewed weighted policy (P4) adds
+    V_irr,eff = V_active + sum_j w^phi_a,j V_a,j with 0 <= w^phi_a,j <= 1.
+    Explicit, fingerprinted, manifest-visible; unknown policy names
+    refuse.
+  poison_flux_exposure:
+    weights:
+      status: unsupported
+      doc: >
+        UNSUPPORTED in the first release (plan section 5.5): the
+        per-segment poison exposure weights w^phi_a,j [1] arrive with a
+        supported weighted policy (P4); sourced values under a
+        zero_credit policy refuse fail-closed (phantom data). Declared
+        unit when sourced: 1.
+
+# ---- Initialization (plan section 7.1; unsourced) -------------------------
+initialization:
+  annulus_temperature:
+    status: unsupported
+    doc: >
+      Must be consistent with the core trim temperatures when enabled;
+      sourced only with the geometry dataset. The PSAR core-FUEL design
+      points (S6 section 4.5.4.3 folio 4-38: 550 degC vessel inlet, 590 degC
+      vessel outlet, 570 degC average at 1 MWth) are not a dedicated annulus
+      initialization temperature (decision record D7). Declared unit when
+      sourced: degC (the plant temperature convention; the segmented emitter
+      converts to kelvin).
+  vessel_temperature:
+    status: unsupported
+    doc: >
+      The PSAR nominal average REACTOR VESSEL temperature of 600 degC (S6
+      section 4.5.4.4 folio 4-39; Tables 4.2-1/4.2-2 are also tabulated at
+      600 degC) is an operating baseline, not an authored initialization
+      value; an owner choosing it would carry the section 4.5.4.4 citation
+      (decision record D7). Declared unit when sourced: degC (the plant
+      temperature convention; the segmented emitter converts to kelvin).

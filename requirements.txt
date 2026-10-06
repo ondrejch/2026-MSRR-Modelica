@@ -1,0 +1,6 @@
+# Runtime dependencies mirrored from pyproject.toml [project.dependencies].
+matplotlib
+numpy
+pandas
+PyYAML
+scipy

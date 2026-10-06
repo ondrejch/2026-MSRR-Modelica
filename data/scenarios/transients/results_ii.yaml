@@ -1,0 +1,106 @@
+schema_version: 1
+kind: transients
+id: results_ii
+doc: Nonlinear step / flow / UHX-trip table used by transients.run_nonlinear_steps (Results II).
+applies_to: [msrr.r1, msrr.r9, msrr.r1_10seg, msrr.r5x5_z10]
+dollar_pcm:
+  value: 604.887
+  unit: pcm
+  doc: >-
+    Reference 1 $ = 604.887 pcm (the lumped 1R core). Dollar-labelled cases
+    (those with a dollars field) are applied per core at that core's own 1 $:
+    the runners rescale them with helpers.circulation_dollar (static beta minus
+    the model's own circulation loss at nominal flow; msrr legacy 1R 604.887 /
+    9R 594.672 pcm, segmented 1R 605.671 / 9R 599.276 / 10-seg and 5x5
+    603.523 pcm). Their pcm entries record the 1R value. Physics review
+    2026-10-02 M3 (TASK-20261002-01 P2): 604.887 pcm was 1.017 $ on the lumped
+    9R and 1.0094 $ on the segmented 9R. Reduced-flow cases use their core's
+    nominal-flow dollar (604.887 pcm is 0.957 $ of the 1R at 1/3 flow).
+  source: shared/kinetics.yaml beta (PSAR 672 pcm total) + lumped_tau_core/lumped_tau_loop (43.5146 / 10.8787 s at the PSAR-basis fuel density) evaluated through the in-repo formula CG_0dyn[i] = beta[i]/(1 + (1 - exp(-lambda_i*nomTauLoop))/(lambda_i*nomTauCore)) at nominal flow FF = 1, giving sum(CG_0dyn) = 6.0488658e-03 = 604.8866 pcm. 1 $ here is the circulating-fuel effective delayed-neutron fraction of the 1R core at nominal flow (the fixed-fuel 672 pcm reduced by the 67.1 pcm circulation loss; PSAR Sec. 4.5.2 quotes 69 pcm). Every dollar-labelled pcm entry in cases is this value times its dollars label; the runners apply the label at each core's own 1 $ (helpers.circulation_dollar, TASK-20261002-01; 604.887 pcm since TASK-20261001-01, formerly 589.069 pcm on the MSRE kinetics and the unsourced fuel density).
+numerics:
+  stop_time_s: 10000.0
+  uhx_stop_time_s: 18400.0
+  number_of_intervals: 10000
+  method: dassl
+  tolerance: 1.0e-6
+  max_step_size_s: 0.02
+  step_output_interval_s: 0.01
+  segmented_trip_min_stop_time_s: 4500.0
+  segmented_flow_min_stop_time_s: 4400.0
+init:
+  power_mw: 1.0
+  heat_loss: 0
+  sync_loop_setpoints: true
+cases:
+  - id: step_2dol
+    family: step
+    pcm: 1209.773
+    dollars: 2.0
+    insert_s: 2000.0
+    flow: 1.0
+  - id: step_1dol
+    family: step
+    pcm: 604.887
+    dollars: 1.0
+    insert_s: 2000.0
+    flow: 1.0
+  - id: step_0p5dol
+    family: step
+    pcm: 302.443
+    dollars: 0.5
+    insert_s: 2000.0
+    flow: 1.0
+  - id: step_0p1dol
+    family: step
+    pcm: 60.489
+    dollars: 0.1
+    insert_s: 2000.0
+    flow: 1.0
+  - id: step_100pcm
+    family: step
+    pcm: 100.0
+    insert_s: 2000.0
+    flow: 1.0
+  - id: step_10pcm
+    family: step
+    pcm: 10.0
+    insert_s: 2000.0
+    flow: 1.0
+  - id: flow_100pct
+    family: flow
+    pcm: 604.887
+    dollars: 1.0
+    pump_trip_s: 2000.0
+    insert_s: 4000.0
+    flow: 1.0
+  - id: flow_66pct
+    family: flow
+    pcm: 604.887
+    dollars: 1.0
+    pump_trip_s: 2000.0
+    insert_s: 4000.0
+    flow: 0.6666666666666666
+  # flow_33pct holds the 1 MW UHX demand after the trip: the secondary settles
+  # near 452 / 442 degC (1R / 9R), below FLiBe freezing (~459 degC). Salt-
+  # freezing territory, kept by owner decision (review 2026-10-02 M2); design
+  # work would be needed if that behavior is within the expected safety
+  # envelope. The model has no phase change.
+  - id: flow_33pct
+    family: flow
+    pcm: 604.887
+    dollars: 1.0
+    pump_trip_s: 2000.0
+    insert_s: 4000.0
+    flow: 0.3333333333333333
+  - id: uhx_trip
+    family: uhx_trip
+    needs_wrapper: true
+    demand_W: [1.0e6, 0.0]
+    times_s: [0.0, 4000.0]
+    dhrs:
+      bleed_frac: 0.005
+      max_frac: 0.1
+      time_s: 4000.0
+display:
+  step_window_s: [-50.0, 400.0]
+  uhx_window_h: [-0.5, 4.0]

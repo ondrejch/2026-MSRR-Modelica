@@ -1,0 +1,226 @@
+# Nine-region core. CLI --core_model 9r.
+# Zone membership (plan §1): Z1={R1}; Z2={R2->R3->R4}; Z3={R5->R6->R7}; Z4={R8->R9}.
+# Deposition shares kFN1/kFN2/kHT1/kHT2 were RENORMALIZED to Σ=1 on 2026-09-20
+# (TASK-20260920-01 P8, rev021 finding B3): every raw MSRR.R9MSRRuhx msre9r
+# value was scaled by 1/1.000649 = 0.999351420927818 (original raw sum
+# 1.000649); see the kFN1 doc for the full provenance note.
+# Graphite-direct share is sum(kHT1+kHT2) ~ 6.073% (the raw ~6.08% family
+# scaled by the same factor) — do not force it to 1R's 7%.
+# Core maturity, two axes (TASK-20260908-01 P2; split after the rev031
+# review): machine-readable labels validated at load time by
+# helpers/plant_config.py against owner-settable enums.
+#   maturity (implementation): reference_regression | discretization_study |
+#     exploratory_geometry
+#   physical_data_maturity: reviewed_design_basis | legacy_inherited |
+#     pending_source_review | synthetic
+maturity: reference_regression
+physical_data_maturity: legacy_inherited
+n_regions:
+  value: 9
+  unit: "1"
+  doc: Number of lumped radial regions.
+  source: MSRR.Components.MSRR9R
+n_zones:
+  value: 4
+  unit: "1"
+  doc: Number of series flow zones.
+zone_start:
+  value: [1, 2, 5, 8]
+  unit: "1"
+  doc: First region index of each zone (1-based, Modelica).
+  source: SegmentedMSR.Reactors.zoneStart9R
+zone_end:
+  value: [1, 4, 7, 9]
+  unit: "1"
+  doc: Last region index of each zone (1-based, Modelica).
+  source: SegmentedMSR.Reactors.zoneEnd9R
+n_seg_zone:
+  value: [2, 6, 6, 4]
+  unit: "1"
+  doc: Salt cells per zone chain (= 2 x regions in the zone). ChannelMap nSeg for the 9R adapter.
+  source: SegmentedMSR.Reactors.nSegZone9R
+vol_F1:
+  value: [0.003795391373, 0.012869720861, 0.007038081469, 0.008797601837, 0.021767608195, 0.011889109660, 0.014880331986, 0.059823315476, 0.040594513827]
+  unit: m3
+  doc: Per-region fuel-node-1 volumes. Verbatim from MSRR.mo msre9r.
+  source: MSRR.R9MSRRuhx msre9r.volF1 / SegmentedMSR.Reactors.volF19R
+vol_F2:
+  value: [0.003971456514, 0.008772341956, 0.007038081469, 0.017142787894, 0.014880331986, 0.011889109660, 0.028956494924, 0.034788134316, 0.068118358784]
+  unit: m3
+  doc: Per-region fuel-node-2 volumes.
+  source: MSRR.R9MSRRuhx msre9r.volF2 / SegmentedMSR.Reactors.volF29R
+vol_G:
+  value: [0.03488047800, 0.10533760200, 0.08002416000, 0.10244745000, 0.17818736400, 0.13543456200, 0.17330364000, 0.47895127800, 0.46943522400]
+  unit: m3
+  doc: Per-region graphite volumes (one graphite node per region). Grand total ≈1.758 m3 = 1R vol_GN.
+  source: MSRR.R9MSRRuhx msre9r.volG / SegmentedMSR.Reactors.volG9R
+hA:
+  value: [94.04, 262.05, 170.44, 314.10, 443.74, 287.91, 530.79, 1145.59, 1316.33]
+  unit: W/K
+  doc: Per-region UA at pump FF = 1; sums to the 1R channel total (4565 W/K).
+  source: "Legacy MSRR.R9MSRRuhx msre9r.hA regional split scaled by 4565/24916 = 0.183214 to the recomputed channel total of cores/r1.yaml hAnom (TASK-20261001-01)."
+hAExp:
+  value: 0.33
+  unit: "1"
+  doc: Fuel-channel film exponent of every region (hA = hA_r * FF^hAExp). Read only by the SegmentedMSR emission (SegmentedMSR_PlantData.Core9R.hAExp, bound by the 9R zone cores); the lumped MSRR.Components.MSRR9R binds no exponent and keeps the FuelChannel default.
+  source: "MSRR.Components.FuelChannel.hAExp default 0.33 (core/MSRR.mo), which all nine lumped 9R region channels use; same value and basis as cores/r1.yaml hAExp (review 2026-10-01 M5)."
+kFN1:
+  value: [0.0149203167145, 0.0273422548766, 0.0450107879986, 0.0512267538368, 0.0359866446676, 0.0601009944546, 0.0684056047625, 0.0617499242991, 0.0932694681152]
+  unit: "1"
+  doc: Per-region fuel-node-1 fission share (renormalized). Provenance (TASK-20260920-01 P8, 2026-09-20, rev021 finding B3) — all four deposition arrays (kFN1, kFN2, kHT1, kHT2) are the raw MSRR.R9MSRRuhx msre9r values multiplied by the scale factor 1/1.000649 = 0.999351420927818 so the regional total Σ(kFN1+kFN2+kHT1+kHT2) = 1 (original raw sum 1.000649; each region applies its shares to the same fissionPower signal, so the 0.0649 percent surplus was deposited power exceeding powerblock.fissionPower). The renormalized total is 1 within a 1e-12 float bar (measured deviation 4.8e-14).
+  source: MSRR.R9MSRRuhx msre9r.kFN1, scaled by 1/1.000649 (renormalized 2026-09-20, TASK-20260920-01 P8)
+kFN2:
+  value: [0.0171988379542, 0.0454704896522, 0.0465298021584, 0.0425823640457, 0.0606506377361, 0.0621396713533, 0.0566032644814, 0.0770200140109, 0.073062582384]
+  unit: "1"
+  doc: Per-region fuel-node-2 fission share (renormalized with kFN1 — same scale factor 1/1.000649, 2026-09-20, TASK-20260920-01 P8; see the kFN1 provenance note).
+  source: MSRR.R9MSRRuhx msre9r.kFN2, scaled by 1/1.000649 (renormalized 2026-09-20, TASK-20260920-01 P8)
+kHT1:
+  value: [0.000945386444198, 0.00168390714426, 0.00302703545399, 0.00344476434794, 0.00221456274878, 0.00404137714623, 0.00460001459053, 0.00391745757004, 0.00627292886916]
+  unit: "1"
+  doc: Per-region convection split to fuel-node-1 (also dual-use graphite-direct with kHT2; renormalized with kFN1 — same scale factor 1/1.000649, 2026-09-20, TASK-20260920-01 P8). The graphite-direct share stays sum(kHT1+kHT2) ≈ 0.060730 (the raw ~6.08% family scaled by the same factor), not 1R's 7%.
+  source: MSRR.R9MSRRuhx msre9r.kHT1, scaled by 1/1.000649 (renormalized 2026-09-20, TASK-20260920-01 P8)
+kHT2:
+  value: [0.00108029888602, 0.00305801534804, 0.00312896929892, 0.00239344665312, 0.00407835314881, 0.00417928764232, 0.00318193492423, 0.00517963841467, 0.00430220786709]
+  unit: "1"
+  doc: Per-region convection split to fuel-node-2 (renormalized with kFN1 — same scale factor 1/1.000649, 2026-09-20, TASK-20260920-01 P8; see the kFN1 provenance note).
+  source: MSRR.R9MSRRuhx msre9r.kHT2, scaled by 1/1.000649 (renormalized 2026-09-20, TASK-20260920-01 P8)
+graphite_split_policy: raw_kHT_sum
+flow_frac_zones:
+  value: [0.061410, 0.138550, 0.234231, 0.565809]
+  unit: "1"
+  doc: Zone flow fractions. Sum = 1.
+  source: MSRR.R9MSRRuhx msre9r.flowFracRegions
+vol_upper_plenum:
+  value: 0.022986
+  unit: m3
+  doc: Mixing-pot (upper-plenum) volume, fixed so the 9R in-core fuel inventory stays the 400 L vessel volume (0.377013 m3 of regions + 0.022986 m3).
+  source: "Fixed at the former 2*volDotFuel = 2 s x 0.011493 m3/s; decoupled from the flow when the fuel density changed (TASK-20261001-01)."
+IF1:
+  value: [0.021680, 0.021970, 0.078970, 0.082490, 0.022540, 0.082550, 0.086230, 0.027450, 0.069360]
+  unit: "1"
+  doc: Per-region fuel-node-1 importance.
+  source: MSRR.R9MSRRuhx msre9r.IF1
+IF2:
+  value: [0.026780, 0.065190, 0.084380, 0.041240, 0.068010, 0.088230, 0.042900, 0.055290, 0.034730]
+  unit: "1"
+  doc: Per-region fuel-node-2 importance.
+  source: MSRR.R9MSRRuhx msre9r.IF2
+IG:
+  value: [0.044430, 0.088350, 0.166710, 0.120770, 0.091810, 0.174290, 0.126120, 0.084080, 0.103430]
+  unit: "1"
+  doc: Per-region graphite importance.
+  source: MSRR.R9MSRRuhx msre9r.IG
+LF1:
+  value: [0.7412, 0.3166, 0.1731, 0.2164, 0.3167, 0.1730, 0.2165, 0.4463, 0.3028]
+  unit: m
+  doc: Per-region fuel-node-1 length.
+  source: MSRR.R9MSRRuhx msre9r.LF1
+LF2:
+  value: [0.7756, 0.2158, 0.1731, 0.4217, 0.2165, 0.1730, 0.4213, 0.2595, 0.5082]
+  unit: m
+  doc: Per-region fuel-node-2 length.
+  source: MSRR.R9MSRRuhx msre9r.LF2
+Ac_zones:
+  value: [0.016189, 0.036524, 0.061748, 0.149159]
+  unit: m2
+  doc: Per-zone flow area.
+  source: MSRR.R9MSRRuhx msre9r.Ac
+ArF1:
+  value: [0.7946, 0.3287, 0.1798, 0.2247, 0.3288, 0.1796, 0.2248, 0.4634, 0.3145]
+  unit: m2
+  source: MSRR.R9MSRRuhx msre9r.ArF1
+ArF2:
+  value: [0.8314, 0.2241, 0.1798, 0.4379, 0.2248, 0.1796, 0.4374, 0.2695, 0.5277]
+  unit: m2
+  source: MSRR.R9MSRRuhx msre9r.ArF2
+e:
+  value: 0.08
+  unit: "1"
+  doc: Region surface emissivity.
+mixing_pot:
+  Ac:
+    value: 1.6118
+    unit: m2
+  L:
+    value: 0.093874
+    unit: m
+  Ar:
+    value: 0.4225
+    unit: m2
+  Tmix_0:
+    value: 580.41
+    unit: degC
+    doc: Upper-plenum initial temperature.
+    source: MSRR.R9MSRRuhx msre9r.Tmix_0
+region_trip_time:
+  value: [200000.0, 200000.0, 200000.0, 200000.0]
+  unit: s
+  doc: Per-zone trip times on the production 9R loop.
+  source: MSRR.R9MSRRuhx msre9r.regionTripTime
+region_coast_down_K:
+  value: 0.02
+  unit: 1/s
+  doc: Per-region coast-down rate after a zone trip.
+  source: MSRR.R9MSRRuhx msre9r.regionCoastDownK
+trim:
+  TF1:
+    value: 566.94
+    unit: degC
+    doc: Region-1 fuel-node-1 scalar setpoint (not the volume-weighted table average).
+    source: MSRR.R9MSRRuhx.fuelTempSetPointNode1
+  TF2:
+    value: 576.02
+    unit: degC
+    source: MSRR.R9MSRRuhx.fuelTempSetPointNode2
+  TG:
+    value: 570.89
+    unit: degC
+    source: MSRR.R9MSRRuhx.graphiteTempSetPoint
+  TF1_regions:
+    value: [566.94, 562.89, 584.55, 609.63, 561.59, 574.98, 590.48, 560.60, 565.19]
+    unit: degC
+    doc: Per-region fuel-node-1 initial/trim temperatures. Region 1 aliases the scalar TF1.
+    source: MSRR.R9MSRRuhx.TF1_0_regions
+  TF2_regions:
+    value: [576.02, 572.69, 597.23, 615.83, 567.64, 582.82, 594.30, 562.63, 566.46]
+    unit: degC
+    source: MSRR.R9MSRRuhx.TF2_0_regions
+  TG_regions:
+    value: [570.89, 566.21, 591.18, 613.04, 564.19, 580.21, 593.17, 562.06, 566.66]
+    unit: degC
+    source: MSRR.R9MSRRuhx.TG_0_regions
+# Segmented-only qualified steady state (physics review 2026-09-27): the
+# per-cell temperatures of SegmentedMSR.Reactors.R9MSRRuhxTrimThermalSS at 1 MW, nominal
+# flow, with temperature feedback referenced to the {reference_temperature}
+# isothermal zero-power critical state (the lumped setpoint-table convention).
+# The segmented rigs bind their FixedStart core temperatures AND their
+# feedback setpoints (the tap averages of these arrays) to this block, so they
+# start at the steady state with zero initial feedback. Regenerate with
+#   python3.12 -m helpers.segmented_trim_levels --write
+# Not read by the lumped MSRR.mo package.
+segmented_steady_state:
+  power:
+    value: 1.0
+    unit: "1"
+    doc: Relative power level of the steady state (segmented runs require powerLevel = 1).
+    source: helpers.segmented_trim_levels
+  reference_temperature:
+    value: 570.0
+    unit: degC
+    doc: Isothermal zero-power critical reference state; the feedback-weighted core temperature equals it at every power (lumped core/init convention).
+    source: core/init/setpoints_1r.csv 1e-5 MW row (570 degC isothermal)
+  T_fuel:
+    value: [547.0644910457, 553.8083551336, 546.0906876243, 553.9855221406, 561.7626107625, 569.7966503844, 578.6658510709, 586.1904011708, 545.0715875095, 551.3437645441, 557.5201650098, 563.9006544273, 570.9488942261, 576.9493790957, 544.0794777068, 547.4664906045, 551.5594541506, 554.9468662397]
+    unit: degC
+    doc: Qualified steady-state fuel-salt cell temperatures, per global salt cell / PerCell moderator node in zone-chain order {R1.FN1, R1.FN2, R2.FN1, ..., R9.FN2}.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R9MSRRuhxTrimThermalSS)
+  T_mod:
+    value: [567.1455966388, 573.8894607268, 562.9600452131, 570.8548797295, 595.4335846708, 603.4676242930, 595.9935186557, 603.5180687557, 558.2922009142, 564.5643779489, 584.1383505056, 590.5188399233, 584.6165469060, 590.6170317756, 551.4823766403, 554.8693895381, 559.0488962826, 562.4363083716]
+    unit: degC
+    doc: Qualified steady-state moderator (graphite) node temperatures, same layout as T_fuel.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R9MSRRuhxTrimThermalSS)
+  T_plenum:
+    value: 564.4327997401
+    unit: degC
+    doc: Qualified steady-state shared upper-plenum (MixingPot) temperature of the zone chain.
+    source: helpers.segmented_trim_levels (SegmentedMSR.Reactors.R9MSRRuhxTrimThermalSS)

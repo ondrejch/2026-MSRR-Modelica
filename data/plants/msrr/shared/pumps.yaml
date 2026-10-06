@@ -1,0 +1,43 @@
+# Pump shaping shared by both cores. Ramp SCHEDULES belong in scenario YAML;
+# these are the hardware defaults on R1MSRRuhx / R9MSRRuhx.
+tripK:
+  value: 50.0
+  unit: s
+  doc: Pump-trip coast-down time constant. Every production assembly binds tripK = 50 s.
+  source: MSRR.R1MSRRuhx primaryPump.tripK
+freeConvFF:
+  value: 0.01
+  unit: "1"
+  doc: Forced-flow-fraction floor. Production pumps never reach FF = 0.
+  source: MSRR.R1MSRRuhx primaryPump.freeConvFF
+tripTime:
+  value: 1.0e7
+  unit: s
+  doc: Default pump trip time on the production loop (pushed to 1e12 on no-trips variants).
+  source: MSRR.R1MSRRuhx primaryPump.tripTime
+primary:
+  numRampUp:
+    value: 1
+    unit: "1"
+  rampUpK:
+    value: [1.0]
+    unit: s
+  rampUpTo:
+    value: [1.0]
+    unit: "1"
+  rampUpTime:
+    value: [0.0]
+    unit: s
+secondary:
+  numRampUp:
+    value: 1
+    unit: "1"
+  rampUpK:
+    value: [100.0]
+    unit: s
+  rampUpTo:
+    value: [1.0]
+    unit: "1"
+  rampUpTime:
+    value: [0.0]
+    unit: s

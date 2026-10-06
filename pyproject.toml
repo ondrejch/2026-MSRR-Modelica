@@ -1,0 +1,149 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smd-msrr"
+version = "0.4.0"
+description = "Python workflows and Modelica assets for MSRR startup, frequency-response, and transient studies."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+authors = [
+    { name = "Ondrej Chvala", email = "ochvala@utexas.edu" },
+    { name = "Visura Pathirana" },
+]
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "PyYAML",
+    "scipy",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "jsonschema",
+    "referencing",
+]
+
+[project.scripts]
+msrr-setpoints-generate = "core.init.generateSetpointTable:main"
+msrr-setpoints-generate-continuation = "core.init.generateSetpointTableContinuation:main"
+msrr-setpoints-test-low-power = "core.init.testSetpointLongLowPower:main"
+msrr-startup-run = "startup.runMSRR:main"
+msrr-startup-plot = "startup.plotStartUp:main"
+msrr-startup-plot-100kw = "startup.plotStartUpTo100kW:main"
+msrr-startup-plot-1mw = "startup.plotStartUpTo1MW:main"
+msrr-startup-plot-with-source = "startup.plotStartUpWithSource:main"
+msrr-startup-plot-criticality = "startup.plotApproachToCriticalityPhase4:main"
+msrr-freq-run = "freq.runFreqNominal:main"
+msrr-freq-run-parallel = "freq.runFreqNominalParallel:main"
+msrr-freq-run-all-powers = "freq.runFreqNominalParallelAllPowers:main"
+msrr-freq-collect = "freq.collectFreqNominal:main"
+msrr-freq-collect-parallel = "freq.collectFreqNominalParallel:main"
+msrr-freq-verify-campaign = "freq.verify_campaign:main"
+msrr-freq-plot-bode-compare = "freq.plotBodeCompareCoreModels:main"
+msrr-freq-plot-time-compare = "freq.plotFreqTimeCompareCoreModels:main"
+msrr-watch-omc-gw-collect = "freq.watchOmcGwCollect:main"
+msrr-transients-run = "transients.run_nonlinear_steps:main"
+msrr-transients-plot = "transients.plot_nonlinear_steps:main"
+msrr-omc-gw = "helpers.omc_gw.modelica_ssh_client:main"
+msrr-omc-gw-agent = "helpers.omc_gw.modelica_ssh_agent:main"
+
+[tool.setuptools]
+include-package-data = true
+
+# Explicit package list: the previous ``packages.find`` directive cannot
+# discover the ``msrr_data`` mapping below (the ``package-dir`` mapping
+# renames data/ to msrr_data, so discovery cannot follow the rename), and
+# ``packages``/``packages.find`` are
+# mutually exclusive. The nine plain members are
+# setuptools.find_packages() output verified at TASK-20260904-03 P2; the
+# two sensitivity ``.data`` dirs carry only curated CSV/MD data (no
+# __init__.py) and are declared to keep the package set unambiguous;
+# ``msrr_data`` is the packaged data tree.
+packages = [
+    "core",
+    "core.init",
+    "freq",
+    "freq.sensitivity",
+    "freq.sensitivity.data",
+    "startup",
+    "transients",
+    "transients.sensitivity",
+    "transients.sensitivity.data",
+    "helpers",
+    "helpers.omc_gw",
+    "msrr_data",
+]
+
+# Distribution model (TASK-20260904-03 P2): self-contained wheel. The
+# authored data tree (plant YAML decks, scenario decks, JSON schemas,
+# catalog) is packaged as the importable ``msrr_data`` package, mapped
+# from the repository's ``data/`` directory; runtime access goes through
+# importlib.resources via helpers.data_resources.
+[tool.setuptools.package-dir]
+msrr_data = "data"
+
+[tool.setuptools.package-data]
+msrr_data = [
+    "**/*.yaml",
+    "**/*.json",
+    "**/*.md",
+    "*.md",
+]
+core = [
+    "*.mo",
+    "generated/*.mo",
+    "README.md",
+    "init/*.csv",
+    "init/*.json",
+    "init/README.md",
+]
+freq = [
+    "README.md",
+    "INVESTIGATION_CONTEXT.md",
+    "sensitivity/README.md",
+    "sensitivity/data/*.csv",
+    "sensitivity/data/*.md",
+]
+startup = [
+    "README.md",
+    "plotStartUp.m",
+]
+transients = [
+    "README.md",
+    "sensitivity/README.md",
+    "sensitivity/data/*.csv",
+    "sensitivity/data/*.md",
+]
+helpers = [
+    "omc_gw/README.md",
+    "omc_gw/config.example.json",
+]
+
+[tool.pytest.ini_options]
+# Fail fast on misspelled custom markers instead of silently ignoring them;
+# built-in marks (parametrize, skipif, xfail, ...) are unaffected.
+addopts = "--strict-markers"
+markers = [
+    "unit: pure-Python tests needing neither OpenModelica nor network access",
+    "static_modelica: checks Modelica sources statically (parse/text), no simulation",
+    "omc_check: executes QA self-check models through omc",
+    "omc_short: short OpenModelica simulations (minutes-scale)",
+    "omc_long: long or heavy OpenModelica simulation campaigns",
+    "omc_parity: segmented-core kelvin-parity replay (strict bars, release-required zero-skip, on the pinned cmake build; O6 looser bars elsewhere)",
+    "ssh: remote-dispatch gateway logic (offline stubs; no cluster contact)",
+    "docs: documentation-consistency checks",
+    "source_checkout: requires a real Git checkout (skips with a reason in gitless source-archive extracts)",
+]
